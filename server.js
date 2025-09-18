@@ -89,10 +89,12 @@ db.serialize(() => {
         ('admin', 'admin@shop.com', '${hashedAdminPassword}', 'admin'),
         ('user1', 'user1@shop.com', '${bcrypt.hashSync('password123', 10)}', 'user')`);
 
-    db.run(`INSERT OR IGNORE INTO products (name, description, price, stock) VALUES 
-        ('Laptop', 'High-performance laptop', 999.99, 10),
-        ('Smartphone', 'Latest smartphone model', 699.99, 25),
-        ('Headphones', 'Wireless noise-cancelling headphones', 199.99, 50)`);
+    db.run(`INSERT OR IGNORE INTO products (name, description, price, stock, image_path) VALUES 
+        ('Laptop', 'High-performance laptop', 999.99, 10, 'https://picsum.photos/seed/laptop/800/500'),
+        ('Smartphone', 'Latest smartphone model', 699.99, 25, 'https://picsum.photos/seed/phone/800/500'),
+        ('Headphones', 'Wireless noise-cancelling headphones', 199.99, 50, 'https://picsum.photos/seed/headphones/800/500'),
+        ('Anime Hero', '<img src=x onerror=alert(\'XSS from name\')>', 59.99, 100, 'https://picsum.photos/seed/hero/800/500'),
+        ('Cat Character', 'キュートなキャラクター画像', 39.99, 80, 'https://picsum.photos/seed/cat/800/500')`);
 });
 
 // CVE-2023-1111: SQL Injection in login endpoint
@@ -227,6 +229,27 @@ app.post('/api/order', (req, res) => {
             return res.status(500).json({ error: 'Order failed' });
         }
         res.json({ message: 'Order placed successfully', orderId: this.lastID });
+    });
+});
+
+// Vulnerable checkout endpoint: stores raw card data and reflects input
+app.post('/api/checkout', (req, res) => {
+    const { name, cardNumber, expiry, cvv, total } = req.body;
+    // CRITICAL: No validation, logs sensitive data, stores plaintext
+    console.log('Payment info:', req.body);
+    db.run(`CREATE TABLE IF NOT EXISTS payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        card_number TEXT,
+        expiry TEXT,
+        cvv TEXT,
+        total REAL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+    const q = `INSERT INTO payments (name, card_number, expiry, cvv, total) VALUES ('${name}', '${cardNumber}', '${expiry}', '${cvv}', ${total})`;
+    db.run(q, function(err){
+        if (err) { return res.status(500).json({ error: 'Checkout error' }); }
+        return res.json({ ok: true, name, total });
     });
 });
 

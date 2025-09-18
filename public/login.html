@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ログイン - Vulnerable Shop</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="navbar">
+    <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
+    <div class="nav-links">
+      <a href="/">ホーム</a>
+      <a href="/products.html">商品</a>
+      <a href="/cart.html">カート</a>
+      <a href="/checkout.html">決済</a>
+    </div>
+  </header>
+  <main class="cart-section" style="max-width:480px;">
+    <h2>ログイン</h2>
+    <div id="msg"></div>
+    <form id="loginForm" class="cart-items">
+      <div class="form-group">
+        <label>ユーザー名</label>
+        <input type="text" id="username" required>
+      </div>
+      <div class="form-group">
+        <label>パスワード</label>
+        <input type="password" id="password" required>
+      </div>
+      <button class="btn btn-primary" type="submit">ログイン</button>
+    </form>
+  </main>
+  <script>
+    const msg = document.getElementById('msg');
+    function show(m, t='info'){ msg.innerHTML = `<div class="alert alert-${t}">${m}</div>` }
+    document.getElementById('loginForm').addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      try{
+        const res = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username, password})});
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.error||'login failed');
+        localStorage.setItem('user', JSON.stringify(data.user));
+        localStorage.setItem('token', data.token);
+        show(`ようこそ <b>${username}</b> さん`, 'success');
+        setTimeout(()=>location.href='/products.html', 800);
+      }catch(err){ show('ログイン失敗: '+err.message, 'danger'); }
+    });
+  </script>
+</body>
+</html>
+

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>商品一覧 - Vulnerable Shop</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="navbar">
+    <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
+    <div class="nav-links">
+      <a href="/">ホーム</a>
+      <a href="/products.html">商品</a>
+      <a href="/cart.html">カート</a>
+      <a href="/checkout.html">決済</a>
+    </div>
+  </header>
+  <main class="products-section">
+    <h2>商品一覧</h2>
+    <div class="search-container" style="margin-bottom:1.5rem;">
+      <input class="search-input" id="q" placeholder="商品検索 (XSS/SQLi学習用)">
+      <button class="btn btn-primary" id="go">検索</button>
+    </div>
+    <div id="grid" class="products-grid"></div>
+  </main>
+  <script>
+    const grid = document.getElementById('grid');
+    async function load(search=''){
+      const res = await fetch('/api/products'+(search?`?search=${encodeURIComponent(search)}`:''));
+      const list = await res.json();
+      grid.innerHTML = '';
+      list.forEach(p=>{
+        const el = document.createElement('div'); el.className='product-card';
+        el.innerHTML = `
+          <img src="${p.image_path||''}" alt="${p.name}" style="width:100%;border-radius:8px;margin-bottom:10px;">
+          <h3>${p.name}</h3>
+          <p>${p.description||''}</p>
+          <div class="product-price">¥${p.price}</div>
+          <div class="product-stock">在庫: ${p.stock}</div>
+          <button class="btn btn-primary" onclick="add(${p.id})">カートに追加</button>
+        `;
+        grid.appendChild(el);
+      })
+    }
+    function add(id){
+      const cart = JSON.parse(localStorage.getItem('cart')||'[]');
+      const found = cart.find(i=>i.productId===id);
+      if(found) found.quantity++; else cart.push({productId:id, quantity:1});
+      localStorage.setItem('cart', JSON.stringify(cart));
+      alert('カートに追加しました');
+    }
+    document.getElementById('go').onclick = ()=>load(document.getElementById('q').value);
+    load();
+    window.add = add;
+  </script>
+</body>
+</html>
+

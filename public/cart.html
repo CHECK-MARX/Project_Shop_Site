@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>カート - Vulnerable Shop</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="navbar">
+    <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
+    <div class="nav-links">
+      <a href="/">ホーム</a>
+      <a href="/products.html">商品</a>
+      <a href="/cart.html">カート</a>
+      <a href="/checkout.html">決済</a>
+    </div>
+  </header>
+  <main class="cart-section">
+    <h2>ショッピングカート</h2>
+    <div id="items" class="cart-items"></div>
+    <div class="cart-total"><h3>合計: <span id="total">¥0</span></h3>
+      <a class="btn btn-success" href="/checkout.html">チェックアウトへ</a></div>
+  </main>
+  <script>
+    async function fetchProduct(id){ const r=await fetch(`/api/product/${id}`); return r.json(); }
+    async function render(){
+      const itemsDiv = document.getElementById('items');
+      const totalEl = document.getElementById('total');
+      const cart = JSON.parse(localStorage.getItem('cart')||'[]');
+      if(cart.length===0){ itemsDiv.innerHTML = '<p>カートは空です</p>'; totalEl.textContent='¥0'; return; }
+      let total=0; let html='';
+      for(const it of cart){ const p = await fetchProduct(it.productId); const t = p.price*it.quantity; total+=t;
+        html += `
+          <div class="cart-item">
+            <div><h4>${p.name}</h4><p>数量: ${it.quantity}</p></div>
+            <div><span class="product-price">¥${t}</span>
+              <button class="btn btn-danger" onclick="rm(${it.productId})">削除</button></div>
+          </div>`;
+      }
+      itemsDiv.innerHTML = html;
+      totalEl.textContent = '¥'+total.toFixed(2);
+    }
+    function rm(id){ const c=JSON.parse(localStorage.getItem('cart')||'[]').filter(i=>i.productId!==id); localStorage.setItem('cart', JSON.stringify(c)); render(); }
+    render(); window.rm = rm;
+  </script>
+</body>
+</html>
+

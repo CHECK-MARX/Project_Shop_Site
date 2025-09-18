@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>決済 - Vulnerable Shop</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="navbar">
+    <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
+    <div class="nav-links">
+      <a href="/">ホーム</a>
+      <a href="/products.html">商品</a>
+      <a href="/cart.html">カート</a>
+      <a href="/checkout.html">決済</a>
+    </div>
+  </header>
+  <main class="cart-section" style="max-width:640px;">
+    <h2>決済情報</h2>
+    <div id="msg"></div>
+    <form id="pay" class="cart-items">
+      <div class="form-group"><label>氏名</label><input id="name" required></div>
+      <div class="form-group"><label>カード番号</label><input id="card" required></div>
+      <div class="form-group"><label>有効期限 (MM/YY)</label><input id="exp" required></div>
+      <div class="form-group"><label>CVV</label><input id="cvv" required></div>
+      <button class="btn btn-success" type="submit">支払う</button>
+    </form>
+  </main>
+  <script>
+    function show(m,t='info'){ document.getElementById('msg').innerHTML = `<div class="alert alert-${t}">${m}</div>` }
+    async function total(){ const cart=JSON.parse(localStorage.getItem('cart')||'[]'); let s=0; for(const it of cart){ const p=await (await fetch('/api/product/'+it.productId)).json(); s+=p.price*it.quantity } return s }
+    document.getElementById('pay').addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const payload = { name: name.value, cardNumber: card.value, expiry: exp.value, cvv: cvv.value, total: await total() };
+      const r = await fetch('/api/checkout', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+      const d = await r.json();
+      if(!r.ok){ show('決済失敗: '+(d.error||'unknown'), 'danger'); return; }
+      show(`決済完了: 合計 <b>¥${d.total}</b> / 名義 <i>${d.name}</i>`, 'success');
+      localStorage.removeItem('cart');
+    });
+  </script>
+</body>
+</html>
+
