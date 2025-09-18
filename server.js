@@ -83,11 +83,12 @@ db.serialize(() => {
 
     // Insert sample data
     const adminPassword = 'admin123'; // CRITICAL: Hardcoded password
+    // Store plaintext to align with intentionally vulnerable login query
     const hashedAdminPassword = bcrypt.hashSync(adminPassword, 10);
     
     db.run(`INSERT OR IGNORE INTO users (username, email, password, role) VALUES 
-        ('admin', 'admin@shop.com', '${hashedAdminPassword}', 'admin'),
-        ('user1', 'user1@shop.com', '${bcrypt.hashSync('password123', 10)}', 'user')`);
+        ('admin', 'admin@shop.com', 'admin123', 'admin'),
+        ('user1', 'user1@shop.com', 'password123', 'user')`);
 
     db.run(`INSERT OR IGNORE INTO products (name, description, price, stock, image_path) VALUES 
         ('Laptop', 'High-performance laptop', 999.99, 10, 'https://picsum.photos/seed/laptop/800/500'),
@@ -95,6 +96,29 @@ db.serialize(() => {
         ('Headphones', 'Wireless noise-cancelling headphones', 199.99, 50, 'https://picsum.photos/seed/headphones/800/500'),
         ('Anime Hero', '<img src=x onerror=alert(1)>', 59.99, 100, 'https://picsum.photos/seed/hero/800/500'),
         ('Cat Character', 'キュートなキャラクター画像', 39.99, 80, 'https://picsum.photos/seed/cat/800/500')`);
+
+    // Seed additional ~20 cute character items
+    db.run(`INSERT OR IGNORE INTO products (name, description, price, stock, image_path) VALUES 
+        ('Cute Cat 1', 'かわいいキャラクター01', 19.99, 100, 'https://picsum.photos/seed/cute01/800/500'),
+        ('Cute Cat 2', 'かわいいキャラクター02', 19.99, 100, 'https://picsum.photos/seed/cute02/800/500'),
+        ('Cute Cat 3', 'かわいいキャラクター03', 19.99, 100, 'https://picsum.photos/seed/cute03/800/500'),
+        ('Cute Cat 4', 'かわいいキャラクター04', 19.99, 100, 'https://picsum.photos/seed/cute04/800/500'),
+        ('Cute Cat 5', 'かわいいキャラクター05', 19.99, 100, 'https://picsum.photos/seed/cute05/800/500'),
+        ('Cute Cat 6', 'かわいいキャラクター06', 19.99, 100, 'https://picsum.photos/seed/cute06/800/500'),
+        ('Cute Cat 7', 'かわいいキャラクター07', 19.99, 100, 'https://picsum.photos/seed/cute07/800/500'),
+        ('Cute Cat 8', 'かわいいキャラクター08', 19.99, 100, 'https://picsum.photos/seed/cute08/800/500'),
+        ('Cute Cat 9', 'かわいいキャラクター09', 19.99, 100, 'https://picsum.photos/seed/cute09/800/500'),
+        ('Cute Cat 10', 'かわいいキャラクター10', 19.99, 100, 'https://picsum.photos/seed/cute10/800/500'),
+        ('Cute Cat 11', 'かわいいキャラクター11', 19.99, 100, 'https://picsum.photos/seed/cute11/800/500'),
+        ('Cute Cat 12', 'かわいいキャラクター12', 19.99, 100, 'https://picsum.photos/seed/cute12/800/500'),
+        ('Cute Cat 13', 'かわいいキャラクター13', 19.99, 100, 'https://picsum.photos/seed/cute13/800/500'),
+        ('Cute Cat 14', 'かわいいキャラクター14', 19.99, 100, 'https://picsum.photos/seed/cute14/800/500'),
+        ('Cute Cat 15', 'かわいいキャラクター15', 19.99, 100, 'https://picsum.photos/seed/cute15/800/500'),
+        ('Cute Cat 16', 'かわいいキャラクター16', 19.99, 100, 'https://picsum.photos/seed/cute16/800/500'),
+        ('Cute Cat 17', 'かわいいキャラクター17', 19.99, 100, 'https://picsum.photos/seed/cute17/800/500'),
+        ('Cute Cat 18', 'かわいいキャラクター18', 19.99, 100, 'https://picsum.photos/seed/cute18/800/500'),
+        ('Cute Cat 19', 'かわいいキャラクター19', 19.99, 100, 'https://picsum.photos/seed/cute19/800/500'),
+        ('Cute Cat 20', 'かわいいキャラクター20', 19.99, 100, 'https://picsum.photos/seed/cute20/800/500')`);
 });
 
 // CVE-2023-1111: SQL Injection in login endpoint
@@ -124,9 +148,8 @@ app.post('/api/login', (req, res) => {
 app.post('/api/register', (req, res) => {
     const { username, email, password } = req.body;
     
-    // CRITICAL: No input validation or sanitization
-    const hashedPassword = bcrypt.hashSync(password, 10);
-    const query = `INSERT INTO users (username, email, password) VALUES ('${username}', '${email}', '${hashedPassword}')`;
+    // CRITICAL: No input validation or sanitization; store plaintext password to keep login vulnerable and functional
+    const query = `INSERT INTO users (username, email, password) VALUES ('${username}', '${email}', '${password}')`;
     
     db.run(query, function(err) {
         if (err) {

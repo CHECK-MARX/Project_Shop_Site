@@ -48,6 +48,28 @@
         setTimeout(()=>location.href='/products.html', 800);
       }catch(err){ show('ログイン失敗: '+err.message, 'danger'); }
     });
+    // Simple vulnerable inline register UI
+    const reg = document.createElement('div');
+    reg.innerHTML = `
+      <hr><h3>新規登録</h3>
+      <div class="cart-items">
+        <div class="form-group"><label>ユーザー名</label><input id="ruser"></div>
+        <div class="form-group"><label>メール</label><input id="remail"></div>
+        <div class="form-group"><label>パスワード</label><input id="rpass"></div>
+        <button class="btn btn-secondary" id="rbtn">登録</button>
+      </div>`;
+    document.querySelector('main').appendChild(reg);
+    document.getElementById('rbtn').onclick = async ()=>{
+      const username = document.getElementById('ruser').value;
+      const email = document.getElementById('remail').value;
+      const password = document.getElementById('rpass').value;
+      try{
+        const res = await fetch('/api/register', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({username, email, password})});
+        const d = await res.json();
+        if(!res.ok) throw new Error(d.error||'登録失敗');
+        show('登録成功。ログインしてください。', 'success');
+      }catch(e){ show('登録失敗: '+e.message, 'danger'); }
+    }
   </script>
 </body>
 </html>

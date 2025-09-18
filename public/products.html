@@ -51,6 +51,8 @@
       alert('カートに追加しました');
     }
     document.getElementById('go').onclick = ()=>load(document.getElementById('q').value);
+    // Redirect to login if not logged in, but still allows browsing if cancelled
+    try{ const u = JSON.parse(localStorage.getItem('user')||'null'); if(!u){ if(confirm('ログインしますか？')) location.href='/login.html'; } }catch(e){}
     load();
     window.add = add;
   </script>
