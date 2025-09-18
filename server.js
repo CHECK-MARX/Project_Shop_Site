@@ -1,0 +1,281 @@
+const express = require('express');
+const sqlite3 = require('sqlite3').verbose();
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const cors = require('cors');
+const bodyParser = require('body-parser');
+const multer = require('multer');
+const cookieParser = require('cookie-parser');
+const session = require('express-session');
+const path = require('path');
+const fs = require('fs');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// CVE-2023-1234: Missing security headers and CORS misconfiguration
+app.use(cors({
+    origin: '*', // CRITICAL: Allows any origin
+    credentials: true
+}));
+
+// CVE-2023-5678: No rate limiting
+// No rate limiting implemented - allows brute force attacks
+
+// CVE-2023-9012: Insecure session configuration
+app.use(session({
+    secret: 'weak-secret-key', // CRITICAL: Weak session secret
+    resave: false,
+    saveUninitialized: true,
+    cookie: {
+        secure: false, // CRITICAL: Not secure in production
+        httpOnly: false, // CRITICAL: Allows XSS to access cookies
+        maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    }
+}));
+
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(cookieParser());
+app.use(express.static('public'));
+
+// CVE-2023-3456: No input validation middleware
+// Missing input validation and sanitization
+
+// Initialize SQLite database
+const db = new sqlite3.Database('shopping.db');
+
+// CVE-2023-7890: SQL Injection vulnerabilities in database setup
+db.serialize(() => {
+    // Create users table with weak password storage
+    db.run(`CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE,
+        email TEXT,
+        password TEXT,
+        role TEXT DEFAULT 'user',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
+    // Create products table
+    db.run(`CREATE TABLE IF NOT EXISTS products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        description TEXT,
+        price REAL,
+        image_path TEXT,
+        stock INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
+    // Create orders table
+    db.run(`CREATE TABLE IF NOT EXISTS orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        product_id INTEGER,
+        quantity INTEGER,
+        total_price REAL,
+        status TEXT DEFAULT 'pending',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id),
+        FOREIGN KEY (product_id) REFERENCES products (id)
+    )`);
+
+    // Insert sample data
+    const adminPassword = 'admin123'; // CRITICAL: Hardcoded password
+    const hashedAdminPassword = bcrypt.hashSync(adminPassword, 10);
+    
+    db.run(`INSERT OR IGNORE INTO users (username, email, password, role) VALUES 
+        ('admin', 'admin@shop.com', '${hashedAdminPassword}', 'admin'),
+        ('user1', 'user1@shop.com', '${bcrypt.hashSync('password123', 10)}', 'user')`);
+
+    db.run(`INSERT OR IGNORE INTO products (name, description, price, stock) VALUES 
+        ('Laptop', 'High-performance laptop', 999.99, 10),
+        ('Smartphone', 'Latest smartphone model', 699.99, 25),
+        ('Headphones', 'Wireless noise-cancelling headphones', 199.99, 50)`);
+});
+
+// CVE-2023-1111: SQL Injection in login endpoint
+app.post('/api/login', (req, res) => {
+    const { username, password } = req.body;
+    
+    // CRITICAL: Direct SQL injection vulnerability
+    const query = `SELECT * FROM users WHERE username = '${username}' AND password = '${password}'`;
+    
+    db.get(query, (err, user) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).json({ error: 'Database error' });
+        }
+        
+        if (user) {
+            // CVE-2023-2222: Weak JWT secret
+            const token = jwt.sign({ userId: user.id, role: user.role }, 'weak-jwt-secret', { expiresIn: '24h' });
+            res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
+        } else {
+            res.status(401).json({ error: 'Invalid credentials' });
+        }
+    });
+});
+
+// CVE-2023-3333: SQL Injection in user registration
+app.post('/api/register', (req, res) => {
+    const { username, email, password } = req.body;
+    
+    // CRITICAL: No input validation or sanitization
+    const hashedPassword = bcrypt.hashSync(password, 10);
+    const query = `INSERT INTO users (username, email, password) VALUES ('${username}', '${email}', '${hashedPassword}')`;
+    
+    db.run(query, function(err) {
+        if (err) {
+            console.error(err);
+            return res.status(500).json({ error: 'Registration failed' });
+        }
+        res.json({ message: 'User registered successfully', userId: this.lastID });
+    });
+});
+
+// CVE-2023-4444: SQL Injection in product search
+app.get('/api/products', (req, res) => {
+    const { search, category } = req.query;
+    
+    let query = 'SELECT * FROM products WHERE 1=1';
+    
+    if (search) {
+        // CRITICAL: SQL injection in search parameter
+        query += ` AND name LIKE '%${search}%'`;
+    }
+    
+    if (category) {
+        // CRITICAL: SQL injection in category parameter
+        query += ` AND category = '${category}'`;
+    }
+    
+    db.all(query, (err, products) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).json({ error: 'Database error' });
+        }
+        res.json(products);
+    });
+});
+
+// CVE-2023-5555: Command Injection vulnerability
+app.post('/api/backup', (req, res) => {
+    const { backupName } = req.body;
+    
+    // CRITICAL: Command injection vulnerability
+    const command = `cp shopping.db backups/${backupName}.db`;
+    
+    require('child_process').exec(command, (error, stdout, stderr) => {
+        if (error) {
+            console.error(error);
+            return res.status(500).json({ error: 'Backup failed' });
+        }
+        res.json({ message: 'Backup created successfully' });
+    });
+});
+
+// CVE-2023-6666: Path Traversal vulnerability
+app.get('/api/file', (req, res) => {
+    const { filename } = req.query;
+    
+    // CRITICAL: Path traversal vulnerability
+    const filePath = path.join(__dirname, 'uploads', filename);
+    
+    if (fs.existsSync(filePath)) {
+        res.sendFile(filePath);
+    } else {
+        res.status(404).json({ error: 'File not found' });
+    }
+});
+
+// CVE-2023-7777: XSS vulnerability in product display
+app.get('/api/product/:id', (req, res) => {
+    const productId = req.params.id;
+    
+    // CRITICAL: No input validation
+    const query = `SELECT * FROM products WHERE id = ${productId}`;
+    
+    db.get(query, (err, product) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).json({ error: 'Database error' });
+        }
+        
+        if (product) {
+            // CRITICAL: XSS vulnerability - no output encoding
+            res.json(product);
+        } else {
+            res.status(404).json({ error: 'Product not found' });
+        }
+    });
+});
+
+// CVE-2023-8888: CSRF vulnerability - no CSRF protection
+app.post('/api/order', (req, res) => {
+    const { productId, quantity, userId } = req.body;
+    
+    // CRITICAL: No CSRF token validation
+    const query = `INSERT INTO orders (user_id, product_id, quantity, total_price) 
+                   SELECT ${userId}, ${productId}, ${quantity}, (price * ${quantity}) 
+                   FROM products WHERE id = ${productId}`;
+    
+    db.run(query, function(err) {
+        if (err) {
+            console.error(err);
+            return res.status(500).json({ error: 'Order failed' });
+        }
+        res.json({ message: 'Order placed successfully', orderId: this.lastID });
+    });
+});
+
+// CVE-2023-9999: Information disclosure - debug endpoint
+app.get('/api/debug', (req, res) => {
+    // CRITICAL: Debug endpoint exposes sensitive information
+    res.json({
+        environment: process.env,
+        database: 'shopping.db',
+        version: '1.0.0',
+        debug: true
+    });
+});
+
+// CVE-2023-0001: Weak authentication bypass
+app.get('/api/admin/users', (req, res) => {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    
+    if (!token) {
+        return res.status(401).json({ error: 'No token provided' });
+    }
+    
+    try {
+        // CRITICAL: Weak JWT verification
+        const decoded = jwt.verify(token, 'weak-jwt-secret');
+        
+        if (decoded.role === 'admin') {
+            // CRITICAL: Exposes all user data including passwords
+            db.all('SELECT * FROM users', (err, users) => {
+                if (err) {
+                    console.error(err);
+                    return res.status(500).json({ error: 'Database error' });
+                }
+                res.json(users);
+            });
+        } else {
+            res.status(403).json({ error: 'Access denied' });
+        }
+    } catch (error) {
+        res.status(401).json({ error: 'Invalid token' });
+    }
+});
+
+// Serve static files
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.listen(PORT, () => {
+    console.log(`Vulnerable shopping site running on port ${PORT}`);
+    console.log('WARNING: This site contains intentional vulnerabilities for educational purposes only!');
+});
