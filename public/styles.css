@@ -9,19 +9,25 @@
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     line-height: 1.6;
-    color: #333;
-    background-color: #f4f4f4;
+    color: #fff;
+    background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(118,75,162,0.35), transparent),
+        radial-gradient(1200px 600px at 110% 110%, rgba(102,126,234,0.35), transparent),
+        linear-gradient(135deg, #0f1020 0%, #1a1033 50%, #101b3a 100%);
+    perspective: 1000px;
 }
 
 /* Header Styles */
 .navbar {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: rgba(20, 22, 60, 0.6);
+    backdrop-filter: blur(10px);
     color: white;
     padding: 1rem 2rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
 }
 
 .nav-brand h1 {
@@ -38,12 +44,14 @@ body {
 .nav-links a {
     color: white;
     text-decoration: none;
-    font-weight: 500;
-    transition: color 0.3s ease;
+    font-weight: 600;
+    position: relative;
+    transition: transform 0.2s ease, color 0.3s ease;
 }
 
 .nav-links a:hover {
     color: #ffd700;
+    transform: translateZ(8px) rotateX(5deg);
 }
 
 .auth-buttons {
@@ -59,10 +67,12 @@ body {
     cursor: pointer;
     font-size: 1rem;
     font-weight: 500;
-    transition: all 0.3s ease;
+    transition: transform 0.2s ease, box-shadow 0.3s ease, background 0.3s ease;
     text-decoration: none;
     display: inline-block;
     text-align: center;
+    box-shadow: 0 10px 20px rgba(0,0,0,0.25);
+    transform-style: preserve-3d;
 }
 
 .btn-primary {
@@ -71,8 +81,8 @@ body {
 }
 
 .btn-primary:hover {
-    background-color: #0056b3;
-    transform: translateY(-2px);
+    background-color: #3b82f6;
+    transform: translateY(-3px) translateZ(8px);
 }
 
 .btn-secondary {
@@ -127,10 +137,12 @@ body {
 
 /* Hero Section */
 .hero {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: radial-gradient(1200px 600px at 50% -20%, rgba(123,97,255,0.35), transparent),
+                linear-gradient(135deg, rgba(102,126,234,0.2), rgba(118,75,162,0.2));
     color: white;
     padding: 4rem 2rem;
     text-align: center;
+    transform-style: preserve-3d;
 }
 
 .hero-content h2 {
@@ -243,26 +255,28 @@ body {
 }
 
 .product-card {
-    background: white;
+    background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
     border-radius: 10px;
     padding: 1.5rem;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    box-shadow: 0 15px 35px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+    transition: transform 0.2s ease, box-shadow 0.3s ease;
+    transform: translateZ(0);
+    border: 1px solid rgba(255,255,255,0.06);
 }
 
 .product-card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+    transform: translateY(-8px) translateZ(12px) rotateX(2deg);
+    box-shadow: 0 25px 55px rgba(0,0,0,0.45);
 }
 
 .product-card h3 {
-    color: #333;
+    color: #fff;
     margin-bottom: 1rem;
     font-size: 1.3rem;
 }
 
 .product-card p {
-    color: #666;
+    color: #cfd8ff;
     margin-bottom: 1rem;
     line-height: 1.5;
 }
@@ -270,12 +284,12 @@ body {
 .product-price {
     font-size: 1.5rem;
     font-weight: bold;
-    color: #28a745;
+    color: #34d399;
     margin-bottom: 1rem;
 }
 
 .product-stock {
-    color: #666;
+    color: #a5b4fc;
     margin-bottom: 1rem;
 }
 

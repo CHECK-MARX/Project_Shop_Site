@@ -125,22 +125,37 @@ db.serialize(() => {
 app.post('/api/login', (req, res) => {
     const { username, password } = req.body;
     
-    // CRITICAL: Direct SQL injection vulnerability
-    const query = `SELECT * FROM users WHERE username = '${username}' AND password = '${password}'`;
+    // CRITICAL: Direct SQL injection vulnerability (plaintext path)
+    const queryPlain = `SELECT * FROM users WHERE username = '${username}' AND password = '${password}'`;
     
-    db.get(query, (err, user) => {
+    db.get(queryPlain, (err, user) => {
         if (err) {
             console.error(err);
             return res.status(500).json({ error: 'Database error' });
         }
-        
         if (user) {
-            // CVE-2023-2222: Weak JWT secret
             const token = jwt.sign({ userId: user.id, role: user.role }, 'weak-jwt-secret', { expiresIn: '24h' });
-            res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
-        } else {
-            res.status(401).json({ error: 'Invalid credentials' });
+            return res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
         }
+        // Fallback: accept legacy hashed passwords (still vulnerable to username injection)
+        const queryUserOnly = `SELECT * FROM users WHERE username = '${username}'`;
+        db.get(queryUserOnly, (e2, u2) => {
+            if (e2) {
+                console.error(e2);
+                return res.status(500).json({ error: 'Database error' });
+            }
+            if (u2 && typeof u2.password === 'string' && u2.password.length > 20) {
+                try {
+                    if (bcrypt.compareSync(password, u2.password)) {
+                        const token = jwt.sign({ userId: u2.id, role: u2.role }, 'weak-jwt-secret', { expiresIn: '24h' });
+                        return res.json({ token, user: { id: u2.id, username: u2.username, role: u2.role } });
+                    }
+                } catch (cmpErr) {
+                    // ignore
+                }
+            }
+            return res.status(401).json({ error: 'Invalid credentials' });
+        });
     });
 });
 
