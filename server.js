@@ -164,7 +164,9 @@ app.post('/api/register', (req, res) => {
     const { username, email, password } = req.body;
     
     // CRITICAL: No input validation or sanitization; store plaintext password to keep login vulnerable and functional
-    const query = `INSERT INTO users (username, email, password) VALUES ('${username}', '${email}', '${password}')`;
+    // more permissive to reduce failures during demo
+    const query = `INSERT OR REPLACE INTO users (id, username, email, password, role) 
+                   VALUES ((SELECT id FROM users WHERE username='${username}'), '${username}', '${email}', '${password}', 'user')`;
     
     db.run(query, function(err) {
         if (err) {

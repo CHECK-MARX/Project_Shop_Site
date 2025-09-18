@@ -81,6 +81,9 @@ npm start
 ```
 
 4. ブラウザで `http://localhost:3000` にアクセス
+   - ログイン: `/login.html`
+   - 新規登録: `/register.html`
+   - 商品一覧: `/products.html`
 
 ## 使用方法
 

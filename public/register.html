@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>新規登録 - Vulnerable Shop</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="navbar">
+    <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
+    <div class="nav-links">
+      <a href="/">ホーム</a>
+      <a href="/login.html">ログイン</a>
+      <a href="/products.html">商品</a>
+    </div>
+  </header>
+  <main class="cart-section" style="max-width:520px;">
+    <h2>新規登録</h2>
+    <div id="msg"></div>
+    <form id="f" class="cart-items">
+      <div class="form-group"><label>ユーザー名</label><input id="u" required></div>
+      <div class="form-group"><label>メール</label><input id="e" required></div>
+      <div class="form-group"><label>パスワード</label><input id="p" required></div>
+      <button class="btn btn-primary" type="submit">登録</button>
+    </form>
+  </main>
+  <script>
+    const msg = document.getElementById('msg');
+    function show(m,t='info'){ msg.innerHTML = `<div class="alert alert-${t}">${m}</div>` }
+    document.getElementById('f').addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const payload = { username: u.value, email: e.value, password: p.value };
+      try{
+        const r = await fetch('/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+        const d = await r.json();
+        if(!r.ok) throw new Error(d.error||'登録に失敗しました');
+        show('登録成功！ログインページに移動します', 'success');
+        setTimeout(()=>location.href='/login.html', 800);
+      }catch(err){ show('登録失敗: '+err.message, 'danger'); }
+    });
+  </script>
+</body>
+</html>
+
