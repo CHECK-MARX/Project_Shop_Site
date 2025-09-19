@@ -39,14 +39,13 @@
     }
   });
 
-  // ====== ログイン ======
+ // ===== ログイン =====
 document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();
+
   const username = document.getElementById('loginUsername')?.value?.trim();
   const password = document.getElementById('loginPassword')?.value || '';
-  if (!username || !password) {
-    return alert('ユーザー名とパスワードを入力してください');
-  }
+  if (!username || !password) return alert('ユーザー名とパスワードを入力してください');
 
   try {
     const r = await fetch('/api/login', {
@@ -54,20 +53,19 @@ document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
     });
-    const data = await r.json();
-    console.log('login resp:', r.status, data);
 
+    const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'ログインに失敗しました');
 
-    // ログイン成功
+    // 成功処理
     localStorage.setItem('token', data.token);
     alert(`ログインOK: ${data.user?.username || username}`);
 
-    // ✅ ここでモーダルを確実に閉じる
+    // ← ここがポイント：必ず閉じる
     closeModal('loginModal');
 
-    // UI更新
-    updateAuthUI?.();
+    // UI 更新（定義があれば呼ぶ）
+    if (typeof updateAuthUI === 'function') updateAuthUI();
 
   } catch (err) {
     console.error(err);
