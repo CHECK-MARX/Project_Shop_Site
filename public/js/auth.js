@@ -39,29 +39,38 @@
     }
   });
 
-  // ログイン
-  on($('#loginForm'), 'submit', async (e) => {
-    e.preventDefault();
-    const username = $('#loginUsername')?.value?.trim();
-    const password = $('#loginPassword')?.value || '';
-    if (!username || !password) return alert('ユーザー名とパスワードを入力してください');
+  // ====== ログイン ======
+document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const username = document.getElementById('loginUsername')?.value?.trim();
+  const password = document.getElementById('loginPassword')?.value || '';
+  if (!username || !password) {
+    return alert('ユーザー名とパスワードを入力してください');
+  }
 
-    try {
-      const r = await fetch('/api/login', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ username, password })
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || 'ログインに失敗しました');
-      localStorage.setItem('token', data.token);
-      alert(`ログインOK: ${data.user?.username || username}`);
-      hide(mLogin);
-    } catch (err) {
-      console.error(err);
-      alert('ログインエラー: ' + err.message);
-    }
-  });
+  try {
+    const r = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await r.json();
+    console.log('login resp:', r.status, data);
 
-  console.log('auth.js loaded');
-})();
+    if (!r.ok) throw new Error(data.error || 'ログインに失敗しました');
+
+    // ログイン成功
+    localStorage.setItem('token', data.token);
+    alert(`ログインOK: ${data.user?.username || username}`);
+
+    // ✅ ここでモーダルを確実に閉じる
+    closeModal('loginModal');
+
+    // UI更新
+    updateAuthUI?.();
+
+  } catch (err) {
+    console.error(err);
+    alert('ログインエラー: ' + err.message);
+  }
+});
