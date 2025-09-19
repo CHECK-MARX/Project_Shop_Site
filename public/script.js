@@ -1,86 +1,141 @@
-/**********************
- * Modal helpers + Boot
- * （このブロックを既存のモーダル/初期化部分と置き換え）
- **********************/
-const $id = id => document.getElementById(id);
+// public/script.js
 
-// 共通: 表示
+// ===== ユーティリティ =====
+const $id = (id) => document.getElementById(id);
+
+// ===== モーダル制御 =====
 function openModal(id) {
   const el = $id(id);
   if (!el) return;
-  el.classList.add('open');            // 任意（スタイルがあれば利用）
+  el.classList.add('open');
   el.classList.remove('hidden');
   el.setAttribute('aria-hidden', 'false');
-  el.style.display = 'flex';           // auth.js と同じ見せ方に統一
-  // フォーカス（アクセシビリティ改善 & スクロール抑止に寄与）
   el.querySelector('.modal-content')?.focus();
 }
-
-// 共通: 非表示
 function closeModal(id) {
   const el = $id(id);
   if (!el) return;
   el.classList.remove('open');
   el.classList.add('hidden');
   el.setAttribute('aria-hidden', 'true');
-  el.style.display = 'none';
-  // ARIAの警告抑制: モーダル内に残ったフォーカスを外へ逃がす
-  document.activeElement?.blur?.();
 }
 
-// どの状態で来ても「モーダルは閉じた状態」から始める
-function ensureAllModalsClosed() {
+// ===== 簡易ユーザ状態 =====
+let currentUser = null;
+let authToken   = null;
+let cart = [];
+
+function updateAuthUI() {
+  const loginBtn    = $id('loginBtn');
+  const registerBtn = $id('registerBtn');
+  const logoutBtn   = $id('logoutBtn');
+  const adminSec    = $id('adminSection');
+
+  const isAuthed = !!localStorage.getItem('token');
+
+  if (isAuthed) {
+    loginBtn && (loginBtn.style.display = 'none');
+    registerBtn && (registerBtn.style.display = 'none');
+    logoutBtn && (logoutBtn.style.display = 'inline-block');
+    adminSec && (adminSec.style.display = 'block'); // 教材用
+  } else {
+    loginBtn && (loginBtn.style.display = 'inline-block');
+    registerBtn && (registerBtn.style.display = 'inline-block');
+    logoutBtn && (logoutBtn.style.display = 'none');
+    adminSec && (adminSec.style.display = 'none');
+  }
+}
+
+function logout() {
+  localStorage.removeItem('token');
+  currentUser = null;
+  authToken   = null;
+  cart = [];
+  updateAuthUI();
+  alert('ログアウトしました');
+}
+
+// ===== API 共通 =====
+async function makeAPICall(url, options = {}) {
+  const token = localStorage.getItem('token');
+  const r = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {})
+    }
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || `${r.status}`);
+  return data;
+}
+
+// ===== 商品ロード & 表示 =====
+async function loadProducts(search = '') {
+  try {
+    const url = search ? `/api/products?search=${encodeURIComponent(search)}` : '/api/products';
+    const products = await makeAPICall(url);
+    const grid = $id('productsGrid');
+    if (!grid) return;
+    grid.innerHTML = '';
+
+    products.forEach(p => {
+      const div = document.createElement('div');
+      div.className = 'product-card';
+      div.innerHTML = `
+        <h3>${p.name}</h3>
+        <p>${p.description}</p>
+        <div class="product-price">¥${p.price}</div>
+        <div class="product-stock">在庫: ${p.stock}個</div>
+        <button class="btn btn-primary" data-id="${p.id}">カートに追加</button>
+      `;
+      div.querySelector('button').addEventListener('click', () => addToCart(p.id));
+      grid.appendChild(div);
+    });
+  } catch (e) {
+    console.error(e);
+    alert('商品取得に失敗しました');
+  }
+}
+
+// ===== カート =====
+function addToCart(productId) {
+  const found = cart.find(i => i.productId === productId);
+  if (found) found.quantity += 1;
+  else cart.push({ productId, quantity: 1 });
+  alert('カートに追加しました');
+}
+
+// ===== 起動処理 =====
+document.addEventListener('DOMContentLoaded', () => {
+  // モーダルは必ず閉じて始める（リロードで出っぱなし防止）
   closeModal('loginModal');
   closeModal('registerModal');
-}
 
-// 外側クリックで閉じる（中身クリックは閉じない）
-function bindBackdropClose() {
-  // モーダル外側（背景）クリック
-  document.querySelectorAll('.modal').forEach(modal => {
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) closeModal(modal.id);
-    });
-  });
-  // モーダル内クリックはバブリング停止
-  document.querySelectorAll('.modal-content').forEach(inner => {
-    inner.addEventListener('click', (e) => e.stopPropagation());
-  });
-}
-
-// ESCキーでアクティブなモーダルを閉じる
-function bindEscToClose() {
-  document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape') return;
-    const open = document.querySelector('.modal:not(.hidden)');
-    if (open) closeModal(open.id);
-  });
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  // リロード時に出ちゃうケースの対策
-  ensureAllModalsClosed();
-
-  // 開く
+  // ボタン → モーダル開閉
   $id('loginBtn')?.addEventListener('click', () => openModal('loginModal'));
   $id('registerBtn')?.addEventListener('click', () => openModal('registerModal'));
-
-  // 閉じる（×ボタン）
+  $id('logoutBtn')?.addEventListener('click', logout);
   $id('loginClose')?.addEventListener('click', () => closeModal('loginModal'));
   $id('registerClose')?.addEventListener('click', () => closeModal('registerModal'));
 
-  // ログアウトは既存関数を利用
-  $id('logoutBtn')?.addEventListener('click', logout);
+  // 背景クリックで閉じる
+  window.addEventListener('click', (e) => {
+    if (e.target.classList?.contains('modal')) closeModal(e.target.id);
+  });
 
-  // 背景クリック/ESCで閉じる
-  bindBackdropClose();
-  bindEscToClose();
+  // # アンカーでスムーススクロール（ホーム / 商品 / カート）
+  document.querySelectorAll('a[href^="#"]').forEach(a => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      const id = a.getAttribute('href').slice(1);
+      const el = $id(id);
+      el?.scrollIntoView({ behavior: 'smooth' });
+    });
+  });
 
-  // 既存の初期処理
-  loadUserData();
-  loadProducts();
-
-  // --- 既存ハンドラ（存在チェック付き） ---
+  // 検索
   $id('searchBtn')?.addEventListener('click', () => {
     const term = $id('searchInput')?.value || '';
     loadProducts(term);
@@ -92,18 +147,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  $id('checkoutBtn')?.addEventListener('click', checkout);
-  $id('viewUsersBtn')?.addEventListener('click', viewUsers);
-  $id('backupBtn')?.addEventListener('click', createBackup);
-  $id('debugBtn')?.addEventListener('click', showDebugInfo);
-  $id('sqlTestBtn')?.addEventListener('click', testSQLInjection);
-  $id('xssTestBtn')?.addEventListener('click', testXSS);
-  $id('pathTestBtn')?.addEventListener('click', testPathTraversal);
+  updateAuthUI();
+  loadProducts();
 });
 
-// 公開（他ファイルやHTMLから呼べるように）
-window.openModal      = openModal;
-window.closeModal     = closeModal;
-window.addToCart      = addToCart;
-window.removeFromCart = removeFromCart;
-window.logout         = logout;
+// ===== グローバル公開（HTMLのonclick対策） =====
+window.openModal  = openModal;
+window.closeModal = closeModal;
+window.logout     = logout;
+window.addToCart  = addToCart;
+window.loadProducts = loadProducts;
+window.updateAuthUI = updateAuthUI;
