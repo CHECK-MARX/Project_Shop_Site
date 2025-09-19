@@ -1,147 +1,143 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vulnerable Shopping Site - 教育用</title>
-    <link rel="stylesheet" href="styles.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Vulnerable Shopping Site - 教育用</title>
+  <link rel="stylesheet" href="styles.css"/>
+  <style>
+    /* モーダルの最低限のスタイル（保険） */
+    .hidden{display:none}
+    .modal{
+      position:fixed; inset:0; background:rgba(0,0,0,.5);
+      display:flex; align-items:center; justify-content:center; z-index:1000;
+    }
+    .modal-content{
+      position:relative; background:#fff; padding:24px; border-radius:8px;
+      min-width:320px; max-width:90vw;
+    }
+    .modal-close{
+      position:absolute; right:12px; top:12px; border:0; background:transparent;
+      font-size:24px; cursor:pointer;
+    }
+    .modal input{display:block; width:100%; margin:8px 0; padding:10px}
+    .modal .btn{width:100%; padding:10px; margin-top:8px}
+  </style>
 </head>
 <body>
-    <header>
-        <nav class="navbar">
-            <div class="nav-brand">
-                <h1>🛒 Vulnerable Shop</h1>
-            </div>
-            <div class="nav-links">
-                <a href="#home">ホーム</a>
-                <a href="#products">商品</a>
-                <a href="#cart">カート</a>
-                <a href="java-vuln.html" style="color:#ffd700;font-weight:bold;">Java脆弱性デモ</a>
-                <div class="auth-buttons">
-                    <button id="loginBtn" class="btn btn-primary">ログイン</button>
-                    <button id="registerBtn" class="btn btn-secondary">新規登録</button>
-                    <button id="logoutBtn" class="btn btn-danger" style="display: none;">ログアウト</button>
-                </div>
-            </div>
-        </nav>
-    </header>
-
-    <main>
-        <!-- CVE-2023-XXXX: XSS vulnerability in search -->
-        <section class="hero">
-            <div class="hero-content">
-                <h2>教育用脆弱性ショッピングサイト</h2>
-                <p>このサイトはセキュリティ教育のために意図的に脆弱性を含んでいます</p>
-                <div class="search-container">
-                    <input type="text" id="searchInput" placeholder="商品を検索..." class="search-input">
-                    <button id="searchBtn" class="btn btn-primary">検索</button>
-                </div>
-            </div>
-        </section>
-
-        <!-- Login Modal -->
-        <div id="loginModal" class="modal">
-            <div class="modal-content">
-                <span class="close">&times;</span>
-                <h2>ログイン</h2>
-                <form id="loginForm">
-                    <div class="form-group">
-                        <label for="loginUsername">ユーザー名:</label>
-                        <input type="text" id="loginUsername" name="username" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="loginPassword">パスワード:</label>
-                        <input type="password" id="loginPassword" name="password" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary">ログイン</button>
-                </form>
-            </div>
+  <header>
+    <nav class="navbar">
+      <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
+      <div class="nav-links">
+        <a href="#home">ホーム</a>
+        <a href="#products">商品</a>
+        <a href="#cart">カート</a>
+        <a href="java-vuln.html" style="color:#ffd700;font-weight:bold;">Java脆弱性デモ</a>
+        <div class="auth-buttons">
+          <button id="loginBtn" class="btn btn-primary">ログイン</button>
+          <button id="registerBtn" class="btn btn-secondary">新規登録</button>
+          <button id="logoutBtn" class="btn btn-danger" style="display:none;">ログアウト</button>
         </div>
+      </div>
+    </nav>
+  </header>
 
-        <!-- Register Modal -->
-        <div id="registerModal" class="modal">
-            <div class="modal-content">
-                <span class="close">&times;</span>
-                <h2>新規登録</h2>
-                <form id="registerForm">
-                    <div class="form-group">
-                        <label for="registerUsername">ユーザー名:</label>
-                        <input type="text" id="registerUsername" name="username" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="registerEmail">メールアドレス:</label>
-                        <input type="email" id="registerEmail" name="email" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="registerPassword">パスワード:</label>
-                        <input type="password" id="registerPassword" name="password" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary">登録</button>
-                </form>
-            </div>
+  <main>
+    <!-- ヒーロー -->
+    <section class="hero" id="home">
+      <div class="hero-content">
+        <h2>教育用脆弱性ショッピングサイト</h2>
+        <p>このサイトはセキュリティ教育のために意図的に脆弱性を含んでいます</p>
+        <div class="search-container">
+          <input type="text" id="searchInput" placeholder="商品を検索..." class="search-input">
+          <button id="searchBtn" class="btn btn-primary">検索</button>
         </div>
+      </div>
+    </section>
 
-        <!-- Products Section -->
-        <section id="products" class="products-section">
-            <h2>商品一覧</h2>
-            <div id="productsGrid" class="products-grid">
-                <!-- Products will be loaded here -->
-            </div>
-        </section>
+    <!-- Products -->
+    <section id="products" class="products-section">
+      <h2>商品一覧</h2>
+      <div id="productsGrid" class="products-grid"></div>
+    </section>
 
-        <!-- Cart Section -->
-        <section id="cart" class="cart-section">
-            <h2>ショッピングカート</h2>
-            <div id="cartItems" class="cart-items">
-                <!-- Cart items will be displayed here -->
-            </div>
-            <div class="cart-total">
-                <h3>合計: <span id="cartTotal">¥0</span></h3>
-                <button id="checkoutBtn" class="btn btn-success">チェックアウト</button>
-            </div>
-        </section>
+    <!-- Cart -->
+    <section id="cart" class="cart-section">
+      <h2>ショッピングカート</h2>
+      <div id="cartItems" class="cart-items"></div>
+      <div class="cart-total">
+        <h3>合計: <span id="cartTotal">¥0</span></h3>
+        <button id="checkoutBtn" class="btn btn-success">チェックアウト</button>
+      </div>
+    </section>
 
-        <!-- Admin Section (Hidden by default) -->
-        <section id="adminSection" class="admin-section" style="display: none;">
-            <h2>管理者パネル</h2>
-            <div class="admin-controls">
-                <button id="viewUsersBtn" class="btn btn-warning">ユーザー一覧</button>
-                <button id="backupBtn" class="btn btn-info">データベースバックアップ</button>
-                <button id="debugBtn" class="btn btn-danger">デバッグ情報</button>
-            </div>
-            <div id="adminContent" class="admin-content">
-                <!-- Admin content will be displayed here -->
-            </div>
-        </section>
+    <!-- Admin -->
+    <section id="adminSection" class="admin-section" style="display:none;">
+      <h2>管理者パネル</h2>
+      <div class="admin-controls">
+        <button id="viewUsersBtn" class="btn btn-warning">ユーザー一覧</button>
+        <button id="backupBtn" class="btn btn-info">データベースバックアップ</button>
+        <button id="debugBtn" class="btn btn-danger">デバッグ情報</button>
+      </div>
+      <div id="adminContent" class="admin-content"></div>
+    </section>
 
-        <!-- Vulnerability Testing Section -->
-        <section class="vulnerability-section">
-            <h2>脆弱性テスト用ツール</h2>
-            <div class="vuln-tools">
-                <div class="tool-group">
-                    <h3>SQLインジェクション</h3>
-                    <input type="text" id="sqlInjectionInput" placeholder="SQLインジェクション例: ' OR '1'='1" class="vuln-input">
-                    <button id="sqlTestBtn" class="btn btn-danger">テスト</button>
-                </div>
-                <div class="tool-group">
-                    <h3>XSSテスト</h3>
-                    <input type="text" id="xssInput" placeholder="XSS例: <script>alert('XSS')</script>" class="vuln-input">
-                    <button id="xssTestBtn" class="btn btn-danger">テスト</button>
-                </div>
-                <div class="tool-group">
-                    <h3>パストラバーサル</h3>
-                    <input type="text" id="pathTraversalInput" placeholder="例: ../../../etc/passwd" class="vuln-input">
-                    <button id="pathTestBtn" class="btn btn-danger">テスト</button>
-                </div>
-            </div>
-        </section>
-    </main>
+    <!-- 脆弱性テスト -->
+    <section class="vulnerability-section">
+      <h2>脆弱性テスト用ツール</h2>
+      <div class="vuln-tools">
+        <div class="tool-group">
+          <h3>SQLインジェクション</h3>
+          <input type="text" id="sqlInjectionInput" placeholder="SQLインジェクション例: ' OR '1'='1" class="vuln-input">
+          <button id="sqlTestBtn" class="btn btn-danger">テスト</button>
+        </div>
+        <div class="tool-group">
+          <h3>XSSテスト</h3>
+          <input type="text" id="xssInput" placeholder="XSS例: &lt;script&gt;alert('XSS')&lt;/script&gt;" class="vuln-input">
+          <button id="xssTestBtn" class="btn btn-danger">テスト</button>
+        </div>
+        <div class="tool-group">
+          <h3>パストラバーサル</h3>
+          <input type="text" id="pathTraversalInput" placeholder="例: ../../../etc/passwd" class="vuln-input">
+          <button id="pathTestBtn" class="btn btn-danger">テスト</button>
+        </div>
+      </div>
+    </section>
+  </main>
 
-    <footer>
-        <p>&copy; 2024 Vulnerable Shopping Site - 教育目的のみ</p>
-        <p><strong>警告:</strong> このサイトは意図的に脆弱性を含んでいます。本番環境では使用しないでください。</p>
-    </footer>
+  <footer>
+    <p>&copy; 2024 Vulnerable Shopping Site - 教育目的のみ</p>
+    <p><strong>警告:</strong> このサイトは意図的に脆弱性を含んでいます。本番環境では使用しないでください。</p>
+  </footer>
 
-    <script src="script.js"></script>
+  <!-- ▼ auth モーダル（この1組だけ） -->
+  <div id="registerModal" class="modal hidden" aria-hidden="true">
+    <div class="modal-content">
+      <button type="button" id="registerClose" class="modal-close" aria-label="閉じる">×</button>
+      <h3>新規登録</h3>
+      <form id="registerForm">
+        <input id="regUsername"  type="text"     placeholder="ユーザー名" required>
+        <input id="regEmail"     type="email"    placeholder="メール（任意）">
+        <input id="regPassword"  type="password" placeholder="パスワード" required>
+        <button id="registerSubmit" type="submit" class="btn btn-primary">登録</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="loginModal" class="modal hidden" aria-hidden="true">
+    <div class="modal-content">
+      <button type="button" id="loginClose" class="modal-close" aria-label="閉じる">×</button>
+      <h3>ログイン</h3>
+      <form id="loginForm">
+        <input id="loginUsername" type="text"     placeholder="ユーザー名" required>
+        <input id="loginPassword" type="password" placeholder="パスワード" required>
+        <button id="loginSubmit" type="submit" class="btn btn-primary">ログイン</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 先に共通ロジック、後で auth（defer） -->
+  <script src="script.js"></script>
+  <script src="js/auth.js" defer></script>
 </body>
 </html>

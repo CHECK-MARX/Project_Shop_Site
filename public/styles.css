@@ -505,3 +505,45 @@ footer p {
     color: #0c5460;
     border: 1px solid #bee5eb;
 }
+/* --- Modal: 安定センタリング & サイズ --- */
+.modal {                 /* 初期は非表示。JSで .open を付けて表示 */
+    display: none !important;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.55);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal.open {            /* 表示時 */
+    display: flex !important;
+  }
+  
+  .modal-content {
+    box-sizing: border-box;
+    width: min(480px, 92vw); /* ちょうど良い幅に */
+    max-height: 85vh;
+    overflow: auto;
+    background: #fff;
+    border-radius: 10px;
+    padding: 20px 18px;
+    position: relative;
+    box-shadow: 0 10px 30px rgba(0,0,0,.3);
+  }
+  
+  .modal-content input,
+  .modal-content button {
+    width: 100%;
+  }
+  
+  /* × ボタン */
+  .modal-close {
+    position: absolute;
+    right: 12px;
+    top: 10px;
+    background: transparent;
+    border: 0;
+    font-size: 24px;
+    cursor: pointer;
+  }
+  
