@@ -5,16 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Vulnerable Shopping Site - 教育用</title>
   <link rel="stylesheet" href="styles.css"/>
+  <!-- 任意：404を消したい場合は favicon を置く（public/favicon.ico を追加） -->
+  <!-- <link rel="icon" href="/favicon.ico"> -->
+
   <style>
     /* モーダルの最低限のスタイル（保険） */
-    .hidden{display:none}
-    .modal{
-      position:fixed; inset:0; background:rgba(0,0,0,.5);
-      display:flex; align-items:center; justify-content:center; z-index:1000;
+    .hidden { display: none; }
+    .modal {
+      position: fixed; inset: 0; background: rgba(0,0,0,.5);
+      display: none; /* JS で表示時に flex にする */
+      align-items: center; justify-content: center; z-index: 1000;
     }
     .modal-content{
-      position:relative; background:#fff; padding:24px; border-radius:8px;
-      min-width:320px; max-width:90vw;
+      position: relative; background:#fff; padding:24px; border-radius:8px;
+      width:min(520px, 92vw);
+      box-shadow: 0 10px 30px rgba(0,0,0,.25);
     }
     .modal-close{
       position:absolute; right:12px; top:12px; border:0; background:transparent;
@@ -33,6 +38,7 @@
         <a href="#products">商品</a>
         <a href="#cart">カート</a>
         <a href="java-vuln.html" style="color:#ffd700;font-weight:bold;">Java脆弱性デモ</a>
+
         <div class="auth-buttons">
           <button id="loginBtn" class="btn btn-primary">ログイン</button>
           <button id="registerBtn" class="btn btn-secondary">新規登録</button>
@@ -116,6 +122,7 @@
       <button type="button" id="registerClose" class="modal-close" aria-label="閉じる">×</button>
       <h3>新規登録</h3>
       <form id="registerForm">
+        <!-- ★ auth.js に合わせた ID（reg* 系） -->
         <input id="regUsername"  type="text"     placeholder="ユーザー名" required>
         <input id="regEmail"     type="email"    placeholder="メール（任意）">
         <input id="regPassword"  type="password" placeholder="パスワード" required>
@@ -136,8 +143,8 @@
     </div>
   </div>
 
-  <!-- 先に共通ロジック、後で auth（defer） -->
-  <script src="script.js"></script>
+  <!-- スクリプト：共通 → auth（defer） の順。どちらも defer にすると競合減ります -->
+  <script src="script.js" defer></script>
   <script src="js/auth.js" defer></script>
 </body>
 </html>

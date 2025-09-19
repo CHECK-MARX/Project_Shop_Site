@@ -67,3 +67,6 @@ window.addToCart = addToCart;
 window.removeFromCart = removeFromCart;
 window.openModal = openModal;
 window.closeModal = closeModal;
+window.addToCart      = addToCart;
+window.removeFromCart = removeFromCart;
+window.logout         = logout;
