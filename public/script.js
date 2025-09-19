@@ -34,15 +34,15 @@ function updateAuthUI() {
   const isAuthed = !!localStorage.getItem('token');
 
   if (isAuthed) {
-    loginBtn && (loginBtn.style.display = 'none');
-    registerBtn && (registerBtn.style.display = 'none');
-    logoutBtn && (logoutBtn.style.display = 'inline-block');
-    adminSec && (adminSec.style.display = 'block'); // 教材用
+    if (loginBtn)    loginBtn.style.display    = 'none';
+    if (registerBtn) registerBtn.style.display = 'none';
+    if (logoutBtn)   logoutBtn.style.display   = 'inline-block';
+    if (adminSec)    adminSec.style.display    = 'block'; // 教材用
   } else {
-    loginBtn && (loginBtn.style.display = 'inline-block');
-    registerBtn && (registerBtn.style.display = 'inline-block');
-    logoutBtn && (logoutBtn.style.display = 'none');
-    adminSec && (adminSec.style.display = 'none');
+    if (loginBtn)    loginBtn.style.display    = 'inline-block';
+    if (registerBtn) registerBtn.style.display = 'inline-block';
+    if (logoutBtn)   logoutBtn.style.display   = 'none';
+    if (adminSec)    adminSec.style.display    = 'none';
   }
 }
 
@@ -71,6 +71,35 @@ async function makeAPICall(url, options = {}) {
   return data;
 }
 
+// ===== 商品カード（安全版） =====
+// ★ textContent でノードを組み立て、XSS を防ぐ
+function createProductCardSafe(p) {
+  const card  = document.createElement('div');
+  card.className = 'product-card';
+
+  const h3 = document.createElement('h3');
+  h3.textContent = p.name;
+
+  const desc = document.createElement('p');
+  desc.textContent = p.description; // ここを innerHTML にしない！
+
+  const price = document.createElement('div');
+  price.className = 'product-price';
+  price.textContent = `¥${p.price}`;
+
+  const stock = document.createElement('div');
+  stock.className = 'product-stock';
+  stock.textContent = `在庫: ${p.stock}個`;
+
+  const btn = document.createElement('button');
+  btn.className = 'btn btn-primary';
+  btn.textContent = 'カートに追加';
+  btn.addEventListener('click', () => addToCart(p.id));
+
+  card.append(h3, desc, price, stock, btn);
+  return card;
+}
+
 // ===== 商品ロード & 表示 =====
 async function loadProducts(search = '') {
   try {
@@ -81,17 +110,8 @@ async function loadProducts(search = '') {
     grid.innerHTML = '';
 
     products.forEach(p => {
-      const div = document.createElement('div');
-      div.className = 'product-card';
-      div.innerHTML = `
-        <h3>${p.name}</h3>
-        <p>${p.description}</p>
-        <div class="product-price">¥${p.price}</div>
-        <div class="product-stock">在庫: ${p.stock}個</div>
-        <button class="btn btn-primary" data-id="${p.id}">カートに追加</button>
-      `;
-      div.querySelector('button').addEventListener('click', () => addToCart(p.id));
-      grid.appendChild(div);
+      const card = createProductCardSafe(p);  // ← 安全版カードを使用
+      grid.appendChild(card);
     });
   } catch (e) {
     console.error(e);
@@ -152,9 +172,9 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ===== グローバル公開（HTMLのonclick対策） =====
-window.openModal  = openModal;
-window.closeModal = closeModal;
-window.logout     = logout;
-window.addToCart  = addToCart;
-window.loadProducts = loadProducts;
-window.updateAuthUI = updateAuthUI;
+window.openModal      = openModal;
+window.closeModal     = closeModal;
+window.logout         = logout;
+window.addToCart      = addToCart;
+window.loadProducts   = loadProducts;
+window.updateAuthUI   = updateAuthUI;
