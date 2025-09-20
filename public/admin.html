@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>管理者ページ - Vulnerable Shop</title>
+  <link rel="stylesheet" href="./styles.css"/>
+  <style>
+    .user-pill{display:inline-flex;align-items:center;gap:6px;margin-left:10px;padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);font-weight:600;letter-spacing:.02em}
+    .admin-wrap{max-width:1200px;margin:36px auto 80px;padding:0 16px}
+    .admin-head{display:flex;align-items:center;gap:14px;margin-bottom:16px}
+    .danger{display:none;margin-bottom:12px;color:#ff6b6b}
+    .note{display:none;margin-bottom:12px;color:#9bd3ff}
+    .admin-table{width:100%;border-collapse:collapse;border-radius:12px;overflow:hidden}
+    .admin-table thead th{background:#0f1b31;color:#cfe0ff;text-align:left;font-weight:700;padding:12px 14px;border-bottom:1px solid #27334d}
+    .admin-table tbody td{padding:12px 14px;border-bottom:1px solid #1f2a44}
+    .muted{opacity:.7}
+  </style>
+</head>
+<body>
+  <header>
+    <nav class="navbar">
+      <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
+      <div class="nav-links">
+        <a href="./index.html">ホーム</a>
+        <a href="./products.html">商品</a>
+        <a href="./cart.html">カート</a>
+        <a href="./java-vuln.html" style="color:#ffd700;font-weight:bold;">Java脆弱性デモ</a>
+        <div class="auth-buttons">
+          <button id="logoutBtn" class="btn btn-danger">ログアウト</button>
+        </div>
+        <span id="navUser" class="user-pill"></span>
+      </div>
+    </nav>
+  </header>
+
+  <main class="admin-wrap">
+    <div class="admin-head">
+      <h2>管理者ページ（登録ユーザー一覧 / メール / パスワード）</h2>
+      <span class="muted">※ 教育用につき機微情報を表示しています</span>
+    </div>
+
+    <div id="errorBox" class="danger"></div>
+    <div id="demoNote" class="note">※ API に接続できないため <strong>デモ表示</strong>（ローカルキャッシュ）を表示しています。</div>
+
+    <div class="table-wrap">
+      <table class="admin-table" id="usersTable" aria-label="ユーザー一覧">
+        <thead>
+          <tr>
+            <th style="width:90px">ID</th>
+            <th>ユーザー名</th>
+            <th>メール</th>
+            <th>パスワード</th>
+            <th style="width:120px">ロール</th>
+          </tr>
+        </thead>
+        <tbody id="usersBody">
+          <tr><td colspan="5" class="muted">読み込み中…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <script src="./script.js"></script>
+  <script>
+    const $ = (s) => document.querySelector(s);
+    const qs = (s) => document.querySelector(s);
+
+    function showUserPill(){
+      const pill = $('#navUser');
+      try{
+        const u = JSON.parse(localStorage.getItem('user') || 'null');
+        pill.textContent = u?.username ? `👤 ${u.username}` : '👤 未ログイン';
+      }catch{ pill.textContent = '👤 未ログイン'; }
+    }
+    function showError(msg){ const b=$('#errorBox'); b.textContent=msg; b.style.display='block'; }
+    function clearError(){ const b=$('#errorBox'); b.textContent=''; b.style.display='none'; }
+    function showDemoNote(on=true){ const n=$('#demoNote'); n.style.display = on ? 'block':'none'; }
+
+    // ---- API ログイン（root/root 失敗時は throw）
+    async function apiLoginRootIfNeeded(){
+      const existing = localStorage.getItem('token');
+      // 既に本物があればそのまま使う
+      if (existing && existing !== 'root-admin-token') return existing;
+
+      // root/root 試行（環境に無いなら 401→throw）
+      const r = await fetch('/api/login', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ username:'root', password:'root' })
+      });
+      const d = await r.json().catch(()=>({}));
+      if (r.ok && d.token){
+        localStorage.setItem('token', d.token);
+        localStorage.setItem('user', JSON.stringify(d.user || { id:0, username:'root', role:'admin', email:'root@local'}));
+        return d.token;
+      }
+      throw new Error(d.error || r.statusText || 'Invalid credentials');
+    }
+
+    // ---- ユーザー一覧 API（候補順にフォールバック）
+    async function fetchUsersWith(token){
+      const headers = { 'Authorization': 'Bearer ' + token };
+      const candidates = ['/api/admin/users','/api/users','/users','/api/debug/users','/debug/users'];
+      let lastErr = '';
+      for (const url of candidates){
+        try{
+          const r = await fetch(url,{ headers });
+          const d = await r.json().catch(()=>({}));
+          if (r.ok) return d;
+          lastErr = d?.error || (r.status+' '+r.statusText);
+        }catch(e){ lastErr = e.message; }
+      }
+      throw new Error(lastErr || 'ユーザー一覧 API が見つかりませんでした');
+    }
+
+    function normalizeUsers(payload){
+      if (Array.isArray(payload)) return payload;
+      if (Array.isArray(payload?.users)) return payload.users;
+      if (Array.isArray(payload?.data))  return payload.data;
+      return [];
+    }
+    function renderUsers(users){
+      const tb = $('#usersBody');
+      if (!users.length){ tb.innerHTML='<tr><td colspan="5" class="muted">ユーザーが見つかりません</td></tr>'; return; }
+      tb.innerHTML = users.map(u=>`
+        <tr>
+          <td>${u.id ?? ''}</td>
+          <td>${u.username ?? ''}</td>
+          <td>${u.email ?? ''}</td>
+          <td>${u.password ?? '(不明)'}</td>
+          <td>${u.role ?? ''}</td>
+        </tr>
+      `).join('');
+    }
+
+    // ---- デモ用ローカルキャッシュ（auth.js が登録時に保存する）
+    function getLocalUserCache(){
+      try{ return JSON.parse(localStorage.getItem('__demo_users__') || '[]'); }
+      catch{ return []; }
+    }
+
+    async function loadUsers(){
+      clearError();
+      showDemoNote(false);
+      $('#usersBody').innerHTML = '<tr><td colspan="5" class="muted">読み込み中…</td></tr>';
+
+      const forceDemo = new URL(location.href).searchParams.get('demo') === '1';
+
+      if (forceDemo){
+        renderUsers(getLocalUserCache());
+        showDemoNote(true);
+        return;
+      }
+
+      // 1) 本物 API を試す
+      try{
+        const token   = await apiLoginRootIfNeeded();        // ← ここで root/root が無いと throw
+        const payload = await fetchUsersWith(token);          // ← 401/403 なら throw
+        const users   = normalizeUsers(payload);
+        renderUsers(users);
+        return;
+      }catch(e){
+        showError('ユーザー一覧の取得に失敗しました（API）: ' + e.message);
+      }
+
+      // 2) ダメならローカルキャッシュでデモ表示
+      const cache = getLocalUserCache();
+      renderUsers(cache);
+      showDemoNote(true);
+    }
+
+    function doLogout(){
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      if (typeof window.updateAuthUI === 'function') window.updateAuthUI();
+      location.href = './index.html';
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      showUserPill();
+      loadUsers();
+      $('#logoutBtn')?.addEventListener('click', doLogout);
+    });
+  </script>
+</body>
+</html>
