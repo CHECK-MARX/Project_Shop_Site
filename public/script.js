@@ -1,34 +1,84 @@
 // public/script.js
 (() => {
+    // ===== 基本ユーティリティ =====
     const $id = (id) => document.getElementById(id);
+    const qs  = (sel) => document.querySelector(sel);
   
-// ==== Modal control（強制版）====
-function openModal(id){
-    const el = document.getElementById(id);
-    if(!el) return;
-    el.classList.remove('hidden');
-    el.setAttribute('aria-hidden','false');
-    el.classList.add('open');
-    el.style.display = 'grid';               // ← 強制で表示
-    el.querySelector('.modal-content')?.focus();
-  }
+    // ===== モーダル制御（強制表示/非表示）=====
+    function openModal(id) {
+      const el = $id(id);
+      if (!el) return;
+      el.classList.remove('hidden');
+      el.setAttribute('aria-hidden', 'false');
+      el.classList.add('open');
+      el.style.display = 'grid';
+      el.querySelector('.modal-content')?.focus();
+    }
+    function closeModal(id) {
+      const el = $id(id);
+      if (!el) return;
+      el.classList.remove('open');
+      el.classList.add('hidden');
+      el.setAttribute('aria-hidden', 'true');
+      el.style.display = 'none';
+    }
+    // HTML からも呼べるように公開
+    window.openModal  = openModal;
+    window.closeModal = closeModal;
   
-  function closeModal(id){
-    const el = document.getElementById(id);
-    if(!el) return;
-    el.classList.remove('open');
-    el.classList.add('hidden');
-    el.setAttribute('aria-hidden','true');
-    el.style.display = 'none';               // ← 強制で非表示
-  }
+    // ===== 認証状態ヘルパ =====
+    function getStoredUser() {
+      const raw = localStorage.getItem('user');
+      if (!raw) return null;
+      try { return JSON.parse(raw); } catch { return null; }
+    }
   
-  // 公開（HTML からも呼べるように）
-  window.openModal  = openModal;
-  window.closeModal = closeModal;
+    function updateAuthUI() {
+      const token    = localStorage.getItem('token');
+      const user     = getStoredUser();
+      const loggedIn = !!token && !!user;
   
+      const loginBtn    = $id('loginBtn');
+      const registerBtn = $id('registerBtn');
+      const logoutBtn   = $id('logoutBtn');
+      const adminSec    = $id('adminSection');
+      const userPill    = $id('navUser'); // <span id="navUser" class="user-pill" hidden></span>
   
-    // ===== 状態とAPI（省略可：前のままでOK） =====
-    let cart = [];
+      if (loggedIn) {
+        if (loginBtn)    loginBtn.style.display    = 'none';
+        if (registerBtn) registerBtn.style.display = 'none';
+        if (logoutBtn)   logoutBtn.style.display   = 'inline-block';
+        if (adminSec)    adminSec.style.display    = (user.role === 'admin') ? 'block' : 'none';
+  
+        if (userPill) {
+          userPill.textContent = `👤 ${user.username || 'user'}`;
+          userPill.removeAttribute('hidden');
+          userPill.style.display = 'inline-flex';
+        }
+      } else {
+        if (loginBtn)    loginBtn.style.display    = 'inline-block';
+        if (registerBtn) registerBtn.style.display = 'inline-block';
+        if (logoutBtn)   logoutBtn.style.display   = 'none';
+        if (adminSec)    adminSec.style.display    = 'none';
+        if (userPill) {
+          userPill.textContent = '';
+          userPill.setAttribute('hidden', '');
+          userPill.style.display = 'none';
+        }
+      }
+    }
+    window.updateAuthUI = updateAuthUI;
+  
+    function logout() {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      cart = [];
+      updateAuthUI();
+      alert('ログアウトしました');
+    }
+    window.logout = logout;
+  
+    // ===== API 共通 =====
     async function api(url, opt = {}) {
       const token = localStorage.getItem('token');
       const r = await fetch(url, {
@@ -44,64 +94,55 @@ function openModal(id){
       return data;
     }
   
-    function updateAuthUI() {
-      const authed = !!localStorage.getItem('token');
-      const show = (id, on) => { const el = $id(id); if (el) el.style.display = on ? 'inline-block' : 'none'; };
-      show('loginBtn', !authed);
-      show('registerBtn', !authed);
-      show('logoutBtn', authed);
-      const admin = $id('adminSection');
-      if (admin) admin.style.display = authed ? 'block' : 'none';
-    }
-    window.updateAuthUI = updateAuthUI;
-  
-    function logout() {
-      localStorage.removeItem('token');
-      cart = [];
-      updateAuthUI();
-      alert('ログアウトしました');
-    }
-    window.logout = logout;
+    // ===== 商品表示 =====
+    let cart = [];
   
     async function loadProducts(search = '') {
+      const grid = $id('productsGrid');
+      if (!grid) return; // ホームにはグリッドが無い場合もある
       try {
-        const url = search ? `/api/products?search=${encodeURIComponent(search)}` : '/api/products';
+        const url = search
+          ? `/api/products?search=${encodeURIComponent(search)}`
+          : '/api/products';
         const products = await api(url);
-        const grid = $id('productsGrid');
-        if (!grid) return;
+  
         grid.innerHTML = '';
         for (const p of products) {
-          const card = document.createElement('div'); card.className = 'product-card';
+          const card = document.createElement('div');
+          card.className = 'product-card';
+  
           const h3 = document.createElement('h3'); h3.textContent = p.name;
-          const d  = document.createElement('p');  d.textContent  = p.description;
-          const pr = document.createElement('div'); pr.className='product-price'; pr.textContent=`¥${p.price}`;
-          const st = document.createElement('div'); st.className='product-stock'; st.textContent=`在庫: ${p.stock}個`;
-          const btn= document.createElement('button'); btn.className='btn btn-primary'; btn.type='button'; btn.textContent='カートに追加';
+          const desc = document.createElement('p'); desc.textContent = p.description;
+          const pr = document.createElement('div'); pr.className = 'product-price'; pr.textContent = `¥${p.price}`;
+          const st = document.createElement('div'); st.className = 'product-stock'; st.textContent = `在庫: ${p.stock}個`;
+          const btn = document.createElement('button'); btn.className = 'btn btn-primary'; btn.type='button'; btn.textContent = 'カートに追加';
           btn.addEventListener('click', () => addToCart(p.id));
-          card.append(h3,d,pr,st,btn); grid.appendChild(card);
+  
+          card.append(h3, desc, pr, st, btn);
+          grid.appendChild(card);
         }
       } catch (e) {
-        console.error(e); alert('商品取得に失敗しました');
+        console.error(e);
+        alert('商品取得に失敗しました');
       }
     }
     window.loadProducts = loadProducts;
   
     function addToCart(productId) {
       const found = cart.find(i => i.productId === productId);
-      if (found) found.quantity += 1; else cart.push({ productId, quantity: 1 });
+      if (found) found.quantity += 1;
+      else cart.push({ productId, quantity: 1 });
       alert('カートに追加しました');
     }
     window.addToCart = addToCart;
   
-    // ===== 起動 =====
+    // ===== 起動処理 =====
     document.addEventListener('DOMContentLoaded', () => {
-      // まずは全部閉じて開始（リロード時の出っぱなし対策）
+      // まずは両モーダルを確実に閉じる（リロードで出っぱなし対策）
       closeModal('loginModal');
       closeModal('registerModal');
-      document.getElementById('loginBtn')?.addEventListener('click', () => openModal('loginModal'));
-      document.getElementById('registerBtn')?.addEventListener('click', () => openModal('registerModal'));
-      document.getElementById('logoutBtn')?.addEventListener('click', () => { localStorage.removeItem('token'); alert('ログアウトしました'); });      
-      // ボタン → 開閉
+  
+      // モーダル開閉ボタン
       $id('loginBtn')?.addEventListener('click', () => openModal('loginModal'));
       $id('registerBtn')?.addEventListener('click', () => openModal('registerModal'));
       $id('logoutBtn')?.addEventListener('click', logout);
@@ -113,7 +154,7 @@ function openModal(id){
         if (e.target.classList?.contains('modal')) closeModal(e.target.id);
       });
   
-      // 検索
+      // 検索（products.html でのみ有効）
       $id('searchBtn')?.addEventListener('click', () => {
         const term = $id('searchInput')?.value || '';
         loadProducts(term);
@@ -122,8 +163,9 @@ function openModal(id){
         if (e.key === 'Enter') loadProducts(e.currentTarget.value || '');
       });
   
+      // 初期UI
       updateAuthUI();
-      loadProducts();
+      loadProducts(); // productsGrid があるページだけ実行される
     });
   })();
   
