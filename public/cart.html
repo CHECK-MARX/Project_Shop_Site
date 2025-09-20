@@ -6,11 +6,13 @@
   <title>カート - Vulnerable Shop</title>
   <link rel="stylesheet" href="./styles.css"/>
 
-  <!-- ユーザー名ピル（各ページで見えるよう最小スタイル） -->
+  <!-- ユーザー名ピル（各ページで共通） -->
   <style>
-    .user-pill{display:none;margin-left:10px;padding:6px 10px;border-radius:999px;
+    .user-pill{
+      display:none;margin-left:10px;padding:6px 10px;border-radius:999px;
       background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);
-      font-weight:600;letter-spacing:.02em}
+      font-weight:600;letter-spacing:.02em
+    }
   </style>
 
   <!-- モーダルの見た目（共通） -->
@@ -49,7 +51,7 @@
           <button id="logoutBtn" class="btn btn-danger" style="display:none;">ログアウト</button>
         </div>
 
-        <!-- ★ ログインユーザー名表示 -->
+        <!-- ★ ログインユーザー名表示（script.js の updateAuthUI が制御） -->
         <span id="navUser" class="user-pill" hidden></span>
       </div>
     </nav>
@@ -98,7 +100,7 @@
   <script src="./script.js"></script>
   <script src="./js/auth.js" defer></script>
 
-  <!-- カート描画だけこのページ固有で持つ（localStorage を使用） -->
+  <!-- カート描画（localStorage を使用） -->
   <script>
     async function fetchProduct(id){
       const r = await fetch(`/api/product/${id}`);
@@ -128,7 +130,6 @@
       let total = 0;
       let html  = '';
 
-      // 逐次で OK（教材用）。速度気になるなら Promise.all で並列化
       for(const it of cart){
         try{
           const p = await fetchProduct(it.productId);
@@ -151,8 +152,8 @@
         }
       }
 
-      itemsDiv.innerHTML    = html || '<p>カートの読み込みに失敗しました</p>';
-      totalEl.textContent   = '¥' + total.toFixed(2);
+      itemsDiv.innerHTML  = html || '<p>カートの読み込みに失敗しました</p>';
+      totalEl.textContent = '¥' + total.toFixed(2);
     }
 
     function rmItem(id){
