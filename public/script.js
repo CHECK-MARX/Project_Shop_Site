@@ -2,7 +2,10 @@
 (() => {
   // ===== util =====
   const $id = (id) => document.getElementById(id);
-
+  document.getElementById('viewUsersBtn')?.addEventListener('click', () => {
+    location.href = './admin.html';
+  });
+  
   // ===== モーダル（既存のまま） =====
   function openModal(id) {
     const el = $id(id);
