@@ -175,14 +175,34 @@ app.post('/api/login', (req, res) => {
   });
 });
 
+// ===== 新規登録（重複は 409 で拒否）=====
 app.post('/api/register', (req, res) => {
-  const { username, email, password } = req.body;
-  const q = `INSERT OR REPLACE INTO users (id, username, email, password, role)
-             VALUES ((SELECT id FROM users WHERE username='${username}'),
-                     '${username}', '${email}', '${password}', 'user')`;
-  db.run(q, function (err) {
-    if (err) return res.status(500).json({ error: 'Registration failed' });
-    res.json({ message: 'User registered successfully', userId: this.lastID });
+  const { username, email, password } = req.body || {};
+  const uname = (username || '').trim();
+  const mail  = (email || '').trim();
+
+  if (!uname || !password) {
+    return res.status(400).json({ error: 'username と password は必須です' });
+  }
+
+  const sqlCheck = `
+    SELECT id FROM users
+    WHERE lower(username)=lower(?) OR ( ?<>'' AND lower(email)=lower(?) )
+  `;
+  db.get(sqlCheck, [uname, mail, mail], (err, row) => {
+    if (err) return res.status(500).json({ error: 'Database error' });
+    if (row) return res.status(409).json({ error: 'すでにユーザーが存在します（ユーザー名またはメールが重複）' });
+
+    const sqlIns = `INSERT INTO users (username, email, password, role) VALUES (?, ?, ?, 'user')`;
+    db.run(sqlIns, [uname, mail, password], function (err2) {
+      if (err2) {
+        if (String(err2.message || '').includes('UNIQUE')) {
+          return res.status(409).json({ error: 'すでにユーザーが存在します' });
+        }
+        return res.status(500).json({ error: 'Registration failed' });
+      }
+      res.json({ message: 'User registered successfully', userId: this.lastID });
+    });
   });
 });
 
@@ -339,7 +359,7 @@ app.get('/api/admin/users', requireAdmin, (req, res) => {
   });
 });
 
-// ★ 追加: パスワード変更（管理者用）
+// パスワード変更（root は拒否）
 app.put('/api/admin/users/:id/password', requireAdmin, (req, res) => {
   const uid = Number(req.params.id);
   const { password } = req.body || {};
@@ -347,14 +367,23 @@ app.put('/api/admin/users/:id/password', requireAdmin, (req, res) => {
   if (!password || typeof password !== 'string' || password.length < 1) {
     return res.status(400).json({ error: 'password required' });
   }
-  db.run('UPDATE users SET password = ? WHERE id = ?', [password, uid], function (err) {
-    if (err) return res.status(500).json({ error: 'Database error' });
-    if (this.changes === 0) return res.status(404).json({ error: 'User not found' });
-    res.json({ ok: true, updated: this.changes });
+
+  db.get('SELECT username FROM users WHERE id = ?', [uid], (e, row) => {
+    if (e) return res.status(500).json({ error: 'Database error' });
+    if (!row) return res.status(404).json({ error: 'User not found' });
+    if (String(row.username).toLowerCase() === 'root') {
+      return res.status(400).json({ error: 'root password cannot be changed' });
+    }
+
+    db.run('UPDATE users SET password = ? WHERE id = ?', [password, uid], function (err) {
+      if (err) return res.status(500).json({ error: 'Database error' });
+      if (this.changes === 0) return res.status(404).json({ error: 'User not found' });
+      res.json({ ok: true, updated: this.changes });
+    });
   });
 });
 
-// ★ 修正: root は削除禁止
+// root は削除禁止
 app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
   const uid = Number(req.params.id);
   if (!Number.isInteger(uid)) return res.status(400).json({ error: 'Bad id' });

@@ -63,7 +63,7 @@
           <th>メール</th>
           <th>パスワード</th>
           <th style="width:120px">ロール</th>
-          <th style="width:180px">操作</th>
+          <th style="width:200px">操作</th>
         </tr>
       </thead>
       <tbody id="usersBody">
@@ -105,7 +105,11 @@
     const resp = await fetch('/api/admin/users', {
       headers:{ Authorization:'Bearer ' + token }
     });
-    if(!resp.ok) throw new Error((await resp.json()).error || resp.statusText);
+    if(!resp.ok){
+      let txt = '';
+      try { txt = (await resp.json()).error; } catch {}
+      throw new Error(txt || resp.statusText);
+    }
     return resp.json();
   }
 
@@ -116,7 +120,9 @@
       return;
     }
     const rows = list.map(u=>{
-      const delDisabled = u.username === 'root' ? 'disabled title="root は削除できません"' : '';
+      const isRoot = String(u.username).toLowerCase()==='root';
+      const editDis = isRoot ? 'disabled title="root は編集できません"' : '';
+      const delDis  = isRoot ? 'disabled title="root は削除できません"' : '';
       return `
         <tr>
           <td>${u.id ?? ''}</td>
@@ -125,8 +131,8 @@
           <td>${u.password ?? '(不明)'}</td>
           <td>${u.role ?? ''}</td>
           <td class="actions">
-            <button class="btn btn-secondary btn-xs" data-action="edit" data-id="${u.id}" data-name="${u.username}">編集</button>
-            <button class="btn btn-danger btn-xs" data-action="del" data-id="${u.id}" data-name="${u.username}" ${delDisabled}>削除</button>
+            <button class="btn btn-secondary btn-xs" data-action="edit" data-id="${u.id}" data-name="${u.username}" ${editDis}>編集</button>
+            <button class="btn btn-danger btn-xs"    data-action="del"  data-id="${u.id}" data-name="${u.username}" ${delDis}>削除</button>
           </td>
         </tr>`;
     }).join('');
@@ -142,20 +148,18 @@
     }catch(e){
       renderUsers([]);
       showErr('ユーザー一覧の取得に失敗しました: ' + e.message);
-      // デモ: ローカルキャッシュ表示などがあればここに
     }
   }
 
   // ---- 削除/編集ハンドラ ----
   $('#usersTable').addEventListener('click', async (ev)=>{
     const btn = ev.target.closest('button[data-action]');
-    if(!btn) return;
+    if(!btn || btn.disabled) return; // disabledは無視
     const id   = btn.getAttribute('data-id');
     const name = btn.getAttribute('data-name');
     const act  = btn.getAttribute('data-action');
 
     if(act === 'del'){
-      if(btn.disabled) return;
       if(!confirm(`ユーザー「${name}」(ID:${id}) を削除しますか？`)) return;
       try{
         const r = await fetch('/api/admin/users/' + id, {
