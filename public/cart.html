@@ -1,185 +1,49 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>カート - Vulnerable Shop</title>
-  <link rel="stylesheet" href="./styles.css"/>
-
-  <!-- ユーザー名ピル（各ページで共通） -->
-  <style>
-    .user-pill{
-      display:none;margin-left:10px;padding:6px 10px;border-radius:999px;
-      background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);
-      font-weight:600;letter-spacing:.02em
-    }
-  </style>
-
-  <!-- モーダルの見た目（共通） -->
-  <style id="modal-fix">
-    .modal{position:fixed;inset:0;display:grid;place-items:center;padding:24px;z-index:1000}
-    .modal::before{content:"";position:absolute;inset:0;background:rgba(5,10,20,.64);backdrop-filter:blur(3px)}
-    .modal.hidden{display:none}.modal.open{display:grid}
-    .modal-content{position:relative;z-index:1;width:clamp(320px,90vw,420px);padding:18px;border-radius:14px;border:1px solid #27334d;background:linear-gradient(180deg,rgba(29,37,61,.96),rgba(18,24,42,.96));box-shadow:0 12px 30px rgba(0,0,0,.45),0 0 0 1px rgba(255,255,255,.02) inset;color:#e9edf6;display:flex;gap:12px}
-    .modal-content h3{margin:0 0 4px;font-size:16px;font-weight:700;letter-spacing:.02em}
-    #registerForm,#loginForm{display:grid;gap:10px}
-    .modal-content input{width:100%;height:40px;padding:10px 12px;border-radius:10px;border:1px solid #2c3a59;background:#101829;color:#e9edf6;outline:none;transition:border-color .15s,box-shadow .15s}
-    .modal-content input:focus{border-color:#2d7ef7;box-shadow:0 0 0 3px rgba(45,126,247,.25)}
-    .modal-content ::placeholder{color:#99a6bf}
-    .modal-content .btn{width:100%;height:40px;border-radius:10px;font-weight:600;letter-spacing:.02em}
-    .modal-content .btn.btn-primary{background:linear-gradient(180deg,#2d7ef7,#1f5ed6);border:0}
-    .modal-content .btn.btn-primary:hover{filter:brightness(1.05)}
-    .modal-content .btn.btn-primary:active{transform:translateY(1px)}
-    .modal-close{position:absolute;top:10px;right:10px;width:28px;height:28px;display:grid;place-items:center;font-size:18px;line-height:1;border-radius:8px;border:1px solid #2b374f;background:#0f1729;color:#cdd7ea;cursor:pointer;transition:background .15s,transform .05s}
-    .modal-close:hover{background:#19223b}.modal-close:active{transform:scale(.98)}
-    body.modal-open{overflow:hidden}
-  </style>
+  <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <header>
-    <nav class="navbar">
-      <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
-      <div class="nav-links">
-        <a href="./index.html">ホーム</a>
-        <a href="./products.html">商品</a>
-        <a href="./cart.html" aria-current="page" style="font-weight:700;">カート</a>
-        <a href="./java-vuln.html" style="color:#ffd700;font-weight:bold;">Java脆弱性デモ</a>
-
-        <div class="auth-buttons">
-          <button id="loginBtn" class="btn btn-primary">ログイン</button>
-          <button id="registerBtn" class="btn btn-secondary">新規登録</button>
-          <button id="logoutBtn" class="btn btn-danger" style="display:none;">ログアウト</button>
-        </div>
-
-        <!-- ★ ログインユーザー名表示（script.js の updateAuthUI が制御） -->
-        <span id="navUser" class="user-pill" hidden></span>
-      </div>
-    </nav>
+  <header class="navbar">
+    <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
+    <div class="nav-links">
+      <a href="/">ホーム</a>
+      <a href="/products.html">商品</a>
+      <a href="/cart.html">カート</a>
+      <a href="/checkout.html">決済</a>
+    </div>
   </header>
-
   <main class="cart-section">
     <h2>ショッピングカート</h2>
-
-    <div id="items" class="cart-items"><!-- ここに項目を描画 --></div>
-
-    <div class="cart-total" style="margin-top:18px;">
-      <h3>合計: <span id="total">¥0</span></h3>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">
-        <a class="btn btn-secondary" href="./products.html">商品一覧へ</a>
-        <a class="btn btn-success"   href="./checkout.html">チェックアウトへ</a>
-      </div>
-    </div>
+    <div id="items" class="cart-items"></div>
+    <div class="cart-total"><h3>合計: <span id="total">¥0</span></h3>
+      <a class="btn btn-success" href="/checkout.html">チェックアウトへ</a></div>
   </main>
-
-  <!-- auth モーダル -->
-  <div id="registerModal" class="modal hidden" aria-hidden="true">
-    <div class="modal-content">
-      <button type="button" id="registerClose" class="modal-close" aria-label="閉じる">×</button>
-      <h3>新規登録</h3>
-      <form id="registerForm">
-        <input id="regUsername"  type="text"     placeholder="ユーザー名" required>
-        <input id="regEmail"     type="email"    placeholder="メール（任意）">
-        <input id="regPassword"  type="password" placeholder="パスワード" required>
-        <button id="registerSubmit" type="submit" class="btn btn-primary">登録</button>
-      </form>
-    </div>
-  </div>
-  <div id="loginModal" class="modal hidden" aria-hidden="true">
-    <div class="modal-content">
-      <button type="button" id="loginClose" class="modal-close" aria-label="閉じる">×</button>
-      <h3>ログイン</h3>
-      <form id="loginForm">
-        <input id="loginUsername" type="text"     placeholder="ユーザー名" required>
-        <input id="loginPassword" type="password" placeholder="パスワード" required>
-        <button id="loginSubmit" type="submit" class="btn btn-primary">ログイン</button>
-      </form>
-    </div>
-  </div>
-
-  <!-- 共通スクリプト（順番厳守） -->
-  <script src="./script.js"></script>
-  <script src="./js/auth.js" defer></script>
-
-  <!-- カート描画（localStorage を使用） -->
   <script>
-    function jget(k,f){ try{ return JSON.parse(localStorage.getItem(k)||'null') ?? f; }catch{ return f; } }
-    function jset(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
-    const CART_KEY='cart';
-  
-    function getCart(){ return jget(CART_KEY, []); }
-    function setCart(a){ jset(CART_KEY, a); }
-  
-    const pid = (it)=> Number(it.id ?? it.productId);
-    const qtt = (it)=> Number((it.qty ?? it.quantity) || 0);
-  
-    async function fetchProduct(id){
-      const r = await fetch(`/api/product/${id}`);
-      if(!r.ok) throw new Error('商品取得に失敗');
-      return r.json();
-    }
-  
-    async function renderCart(){
+    async function fetchProduct(id){ const r=await fetch(`/api/product/${id}`); return r.json(); }
+    async function render(){
       const itemsDiv = document.getElementById('items');
-      const totalEl  = document.getElementById('total');
-      const cart     = getCart();
-  
-      if(!cart.length){
-        itemsDiv.innerHTML = '<p>カートは空です</p>';
-        totalEl.textContent = '¥0';
-        return;
+      const totalEl = document.getElementById('total');
+      const cart = JSON.parse(localStorage.getItem('cart')||'[]');
+      if(cart.length===0){ itemsDiv.innerHTML = '<p>カートは空です</p>'; totalEl.textContent='¥0'; return; }
+      let total=0; let html='';
+      for(const it of cart){ const p = await fetchProduct(it.productId); const t = p.price*it.quantity; total+=t;
+        html += `
+          <div class="cart-item">
+            <div><h4>${p.name}</h4><p>数量: ${it.quantity}</p></div>
+            <div><span class="product-price">¥${t}</span>
+              <button class="btn btn-danger" onclick="rm(${it.productId})">削除</button></div>
+          </div>`;
       }
-  
-      let total = 0;
-      let html  = '';
-  
-      for(const it of cart){
-        const id  = pid(it);
-        const qty = qtt(it) || 1;
-  
-        try{
-          const p = await fetchProduct(id);
-          const price = Number(p.price) || 0;
-          const t = price * qty;
-          total += t;
-  
-          html += `
-            <div class="cart-item">
-              <div>
-                <h4>${p.name || ('#'+id)}</h4>
-                <p>数量: ${qty}</p>
-              </div>
-              <div>
-                <span class="product-price">¥${t.toFixed(2)}</span>
-                <button class="btn btn-danger" onclick="rmItem(${id})">削除</button>
-              </div>
-            </div>`;
-        }catch(e){
-          // 取得失敗でも最低限表示
-          html += `
-            <div class="cart-item">
-              <div><h4>#${id}</h4><p>数量: ${qty}</p></div>
-              <div><span class="product-price">¥?</span>
-                <button class="btn btn-danger" onclick="rmItem(${id})">削除</button>
-              </div>
-            </div>`;
-        }
-      }
-  
-      itemsDiv.innerHTML  = html;
-      totalEl.textContent = '¥' + total.toFixed(2);
+      itemsDiv.innerHTML = html;
+      totalEl.textContent = '¥'+total.toFixed(2);
     }
-  
-    function rmItem(id){
-      const next = getCart().filter(i => (i.id ?? i.productId) !== id);
-      setCart(next);
-      renderCart();
-    }
-  
-    window.rmItem = rmItem;
-    window.renderCart = renderCart;
-  
-    renderCart();
+    function rm(id){ const c=JSON.parse(localStorage.getItem('cart')||'[]').filter(i=>i.productId!==id); localStorage.setItem('cart', JSON.stringify(c)); render(); }
+    render(); window.rm = rm;
   </script>
-  
 </body>
 </html>
+
