@@ -5,6 +5,7 @@
 
   // ===== Utils =====
   const $id  = (id) => document.getElementById(id);
+  const $qs  = (sel, root=document) => root.querySelector(sel);
   const jget = (k, fb=null) => { try { return JSON.parse(localStorage.getItem(k) || 'null') ?? fb; } catch { return fb; } };
   const jset = (k, v) => localStorage.setItem(k, JSON.stringify(v));
   const jdel = (k) => localStorage.removeItem(k);
@@ -15,6 +16,28 @@
     const user  = jget('user', null);
     return !!token && !!user && !!user.username;
   };
+
+  const authToken = () => localStorage.getItem('token') || '';
+
+  async function api(url){
+    const r = await fetch(url);
+    const d = await r.json().catch(()=>({}));
+    if (!r.ok) throw new Error(d.error || r.status);
+    return d;
+  }
+  async function apiAuth(url, opt={}){
+    const r = await fetch(url, {
+      ...opt,
+      headers: {
+        'Content-Type':'application/json',
+        ...(opt.headers||{}),
+        Authorization: `Bearer ${authToken()}`
+      }
+    });
+    const d = await r.json().catch(()=>({}));
+    if (!r.ok) throw new Error(d.error || r.status);
+    return d;
+  }
 
   // ===== Toast =====
   function showToast(msg, ms=1400) {
@@ -38,8 +61,7 @@
   function openModal(id){
     const el = $id(id);
     if (!el) return;
-    el.classList.remove('hidden');
-    el.classList.add('open');
+    el.classList.remove('hidden'); el.classList.add('open');
     el.setAttribute('aria-hidden','false');
     document.body.classList.add('modal-open');
     el.querySelector('input,button,select,textarea')?.focus();
@@ -47,13 +69,32 @@
   function closeModal(id){
     const el = $id(id);
     if (!el) return;
-    el.classList.remove('open');
-    el.classList.add('hidden');
+    el.classList.remove('open'); el.classList.add('hidden');
     el.setAttribute('aria-hidden','true');
     document.body.classList.remove('modal-open');
   }
   window.openModal  = openModal;
   window.closeModal = closeModal;
+
+  // ===== プロフィールキャッシュ =====
+  const PROFILE_CACHE_KEY = '__me_profile';
+  const setProfileCache = (p) => jset(PROFILE_CACHE_KEY, p||{});
+  const getProfileCache = () => jget(PROFILE_CACHE_KEY, {});
+
+  async function fetchMeAndCache(){
+    if (!isLoggedIn()) { setProfileCache({}); return; }
+    try{
+      const me = await apiAuth('/api/me');
+      setProfileCache(me?.profile || {});
+      // email 更新が返ってきてたら user に反映（任意）
+      const user = jget('user', null);
+      if (user && me?.user?.username === user.username) {
+        jset('user', { ...user, email: me?.user?.email });
+      }
+    }catch(e){
+      // 認証切れ等は無視
+    }
+  }
 
   // ===== Cart (user-scoped mirror) =====
   const CART_KEY = 'cart';
@@ -86,7 +127,7 @@
     try { window.renderCart && window.renderCart(); } catch {}
   }
 
-  // ===== Pending Add (未ログインで押された 1 件を保存しておく) =====
+  // ===== Pending Add（未ログイン時に1件だけ保留）=====
   const PENDING_KEY = '__pendingAdd';
   const queuePendingAdd   = (info) => sessionStorage.setItem(PENDING_KEY, JSON.stringify(info));
   const consumePendingAdd = () => {
@@ -97,10 +138,14 @@
   };
 
   // ===== Auth UI =====
+  function displayNameOrUsername(){
+    const user = getUser();
+    const prof = getProfileCache();
+    return (prof?.display_name && String(prof.display_name).trim()) || (user?.username || 'user');
+  }
+
   function updateAuthUI(){
     const loggedIn = isLoggedIn();
-    const user  = getUser();
-
     const loginBtn    = $id('loginBtn');
     const registerBtn = $id('registerBtn');
     const logoutBtn   = $id('logoutBtn');
@@ -112,25 +157,21 @@
       registerBtn && (registerBtn.style.display='none');
       logoutBtn   && (logoutBtn.style.display='inline-block');
       if (userPill){
-        userPill.textContent = `👤 ${user.username || 'user'}`;
+        userPill.textContent = `👤 ${displayNameOrUsername()}`;
         userPill.removeAttribute('hidden');
         userPill.style.display = 'inline-flex';
       }
       profileLink && (profileLink.style.display='inline');
 
-      // カート復元 & モーダル閉
       restoreUserCartIfNeeded();
-      closeModal('loginModal');
-      closeModal('registerModal');
-
-      // ★ ログイン直後に保留していた追加を実行
+      closeModal('loginModal'); closeModal('registerModal');
       consumePendingAdd();
     } else {
       loginBtn    && (loginBtn.style.display='inline-block');
       registerBtn && (registerBtn.style.display='inline-block');
       logoutBtn   && (logoutBtn.style.display='none');
       if (userPill){
-        userPill.textContent='';
+        userPill.textContent = '';
         userPill.setAttribute('hidden','');
         userPill.style.display='none';
       }
@@ -148,6 +189,7 @@
     clearCart();
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    setProfileCache({});
 
     updateAuthUI();
     showToast('ログアウトしました');
@@ -155,46 +197,36 @@
   }
   window.logout = logout;
 
-  // ===== Add to cart (with login guard) =====
+  // ===== Add to cart（未ログインはブロックしてログイン誘導）=====
   const getPid = (it) => num(it?.id ?? it?.productId, NaN);
 
   async function addToCartAny(arg){
-    // ★ 未ログインはブロックしてモーダル表示＆保留
     if (!isLoggedIn()){
-      // 取得できるだけ情報を持っておく
       let pid, name='', price=0;
       if (typeof arg === 'object' && arg){
         pid   = num(arg.id ?? arg.productId);
         name  = arg.name  || '';
         price = num(arg.price, 0);
-      } else {
-        pid = num(arg);
-      }
+      } else { pid = num(arg); }
       queuePendingAdd({ id: pid, name, price });
       showToast('ログイン後にカートへ追加します');
       openModal('loginModal');
       return;
     }
 
-    // ログイン済みなら通常追加
     let pid, name='', price=0;
     if (typeof arg === 'object' && arg){
       pid   = num(arg.id ?? arg.productId);
       name  = arg.name  || '';
       price = num(arg.price, 0);
-    } else {
-      pid = num(arg);
-    }
+    } else { pid = num(arg); }
     if (!Number.isFinite(pid)) return;
 
     if (!name || !price){
       try{
-        const r = await fetch(`/api/product/${pid}`);
-        if (r.ok){
-          const p = await r.json();
-          name  ||= p.name || '';
-          price ||= num(p.price, 0);
-        }
+        const p = await api(`/api/product/${pid}`);
+        name  ||= p.name || '';
+        price ||= num(p.price, 0);
       }catch{}
     }
 
@@ -223,13 +255,7 @@
     el.style.display = total>0 ? 'inline-block' : 'none';
   }
 
-  // ===== Products list (for products.html) =====
-  async function api(url){
-    const r = await fetch(url);
-    const d = await r.json().catch(()=>({}));
-    if (!r.ok) throw new Error(d.error || r.status);
-    return d;
-  }
+  // ===== Products list（products.html）=====
   async function loadProducts(search=''){
     const grid = $id('productsGrid');
     if (!grid) return;
@@ -245,8 +271,7 @@
         card.dataset.price = p.price;
 
         const img = document.createElement('img');
-        img.className='product-img';
-        img.alt = p.name || 'product';
+        img.className='product-img'; img.alt = p.name || 'product';
         img.src = p.image_path || `https://picsum.photos/seed/p${p.id}/600/380`;
 
         const h3 = document.createElement('h3'); h3.textContent = p.name;
@@ -255,12 +280,8 @@
         const st = document.createElement('div'); st.className='product-stock'; st.textContent = `在庫: ${p.stock}個`;
 
         const btn = document.createElement('button');
-        btn.className='btn btn-primary add-to-cart';
-        btn.type='button';
-        btn.textContent='カートに追加';
-        btn.dataset.productId = p.id;
-        btn.dataset.name  = p.name;
-        btn.dataset.price = p.price;
+        btn.className='btn btn-primary add-to-cart'; btn.type='button'; btn.textContent='カートに追加';
+        btn.dataset.productId = p.id; btn.dataset.name  = p.name; btn.dataset.price = p.price;
 
         card.append(img,h3,ds,pr,st,btn);
         grid.appendChild(card);
@@ -272,7 +293,7 @@
   }
   window.loadProducts = loadProducts;
 
-  // ===== Click delegation (close modal / add-to-cart) =====
+  // ===== クリック委譲（Close / Add to Cart）=====
   document.addEventListener('click', (ev) => {
     const t = ev.target;
     if (t.closest('#loginClose'))    return closeModal('loginModal');
@@ -280,8 +301,6 @@
 
     const btn = t.closest('[data-add],[data-product-id],[data-id],.add-to-cart,button');
     if (!btn) return;
-
-    // カートに追加らしきボタンのみ処理
     const label = (btn.textContent||'').trim();
     const isAdd = btn.matches('[data-add],[data-product-id],[data-id],.add-to-cart') || /カートに追加|Add to Cart/i.test(label);
     if (!isAdd) return;
@@ -292,7 +311,6 @@
     let id    = btn.dataset.id || btn.dataset.productId;
     let name  = btn.dataset.name;
     let price = btn.dataset.price;
-
     if (!id){
       const card = btn.closest('.product-card');
       id    = card?.dataset?.id;
@@ -302,21 +320,77 @@
     addToCartAny({ id, name, price }).finally(()=> { btn.__cartHandling = false; });
   });
 
+  // ===== プロフィール保存（/profile.html 等）=====
+  const PROFILE_FIELDS = [
+    'display_name','full_name','phone','birthday','website','bio','avatar_url',
+    'address1','address2','city','state','zip','country','language','timezone',
+    'newsletter','twitter','email'
+  ];
+
+  function getFieldValue(name){
+    // 優先度: [name=] → #pf_name → #name
+    const byName = $qs(`[name="${name}"]`);
+    const pfId   = $id(`pf_${name}`);
+    const byId   = $id(name);
+    const el = byName || pfId || byId;
+    if (!el) return null;
+    if (el.type === 'checkbox') return el.checked ? 1 : 0;
+    return el.value ?? null;
+  }
+  function collectProfileFromForm(){
+    const p = {};
+    PROFILE_FIELDS.forEach(k => {
+      const v = getFieldValue(k);
+      if (v !== null) p[k] = v;
+    });
+    return p;
+  }
+
+  async function saveProfile(){
+    if (!isLoggedIn()){ openModal('loginModal'); return; }
+    try{
+      const payload = collectProfileFromForm();
+      await apiAuth('/api/me', {
+        method:'PUT',
+        body: JSON.stringify(payload)
+      });
+      // 再取得してキャッシュ更新（確実）
+      await fetchMeAndCache();
+      updateAuthUI(); // display_name 反映
+      showToast('プロフィールを保存しました');
+    }catch(e){
+      showToast(`保存に失敗: ${e.message || e}`, 2000);
+    }
+  }
+
+  // フォーム/ボタン配線（存在するページだけ動く）
+  function wireProfilePage(){
+    const form = $id('profileForm');
+    const btn  = $id('profileSave');
+    if (form){
+      form.addEventListener('submit', (e)=>{ e.preventDefault(); saveProfile(); });
+    }
+    if (btn){
+      btn.addEventListener('click', (e)=>{ e.preventDefault?.(); saveProfile(); });
+    }
+  }
+
   // ===== Auth change watcher =====
   let _lastToken = localStorage.getItem('token') || null;
   let _lastUser  = (getUser()?.username) || null;
-  setInterval(() => {
+  setInterval(async () => {
     const tok = localStorage.getItem('token') || null;
     const usr = (getUser()?.username) || null;
     if (tok !== _lastToken || usr !== _lastUser) {
       _lastToken = tok;
       _lastUser  = usr;
+      if (tok && usr) await fetchMeAndCache(); // ログイン切替で最新を取得
       updateAuthUI();
     }
   }, 700);
 
   // ===== Boot =====
-  document.addEventListener('DOMContentLoaded', ()=>{
+  document.addEventListener('DOMContentLoaded', async ()=>{
     $id('loginBtn')?.addEventListener('click', ()=> openModal('loginModal'));
     $id('registerBtn')?.addEventListener('click', ()=> openModal('registerModal'));
     $id('logoutBtn')?.addEventListener('click', logout);
@@ -334,7 +408,10 @@
       if (e.key === 'Enter') loadProducts(e.currentTarget.value || '');
     });
 
+    wireProfilePage();
+
+    if (isLoggedIn()) await fetchMeAndCache();
     updateAuthUI();
-    loadProducts();
+    loadProducts(); // products.html のときのみ効く
   });
 })();
