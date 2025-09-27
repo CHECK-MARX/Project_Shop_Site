@@ -8,12 +8,14 @@
 
   <!-- ユーザ名ピル（他ページで未定義でも見えるよう最小スタイル） -->
   <style>
-    .user-pill{display:none;margin-left:10px;padding:6px 10px;border-radius:999px;
+    .user-pill{
+      display:none;margin-left:10px;padding:6px 10px;border-radius:999px;
       background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);
-      font-weight:600;letter-spacing:.02em}
+      font-weight:600;letter-spacing:.02em
+    }
   </style>
 
-  <!-- モーダルの見た目（index と同等） -->
+  <!-- 共通モーダルの見た目 -->
   <style id="modal-fix">
     .modal{position:fixed;inset:0;display:grid;place-items:center;padding:24px;z-index:1000}
     .modal::before{content:"";position:absolute;inset:0;background:rgba(5,10,20,.64);backdrop-filter:blur(3px)}
@@ -49,7 +51,6 @@
           <button id="logoutBtn" class="btn btn-danger" style="display:none;">ログアウト</button>
         </div>
 
-        <!-- ★ ログインユーザー名表示 -->
         <span id="navUser" class="user-pill" hidden></span>
       </div>
     </nav>
@@ -98,8 +99,8 @@
     </div>
   </div>
 
-  <!-- スクリプトの順番は共通：先に script.js、後に auth.js -->
-  <script src="script.js"></script>
-  <script src="js/auth.js" defer></script>
+  <!-- ✅ 必要なのはこの2つだけ。script.js が全て面倒を見ます -->
+  <script src="script.js?v=4"></script>
+  <script src="js/auth.js?v=4" defer></script>
 </body>
 </html>

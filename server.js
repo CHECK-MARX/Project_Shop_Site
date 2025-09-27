@@ -126,6 +126,14 @@ db.serialize(() => {
 const signToken  = (p) => jwt.sign(p, JWT_KEY, { expiresIn: '24h' });
 const verifyToken = (t) => jwt.verify(t, JWT_KEY);
 
+// 追加：最低限の HTML エスケープ（XSS 抑止用）
+const esc = (s) => String(s ?? '')
+  .replace(/&/g,'&amp;')
+  .replace(/</g,'&lt;')
+  .replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;')
+  .replace(/'/g,'&#39;');
+
 function requireAuth(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'No token provided' });
@@ -280,6 +288,7 @@ app.put('/api/me/password', requireAuth, (req, res) => {
 });
 
 // ===== 商品/その他 脆弱API =====
+// ※ name/description をエスケープして返す（XSSでUIが固まるのを防止）
 app.get('/api/products', (req, res) => {
   const { search, category } = req.query;
   let q = 'SELECT * FROM products WHERE 1=1';
@@ -287,7 +296,12 @@ app.get('/api/products', (req, res) => {
   if (category) q += ` AND category = '${category}'`;
   db.all(q, (err, rows) => {
     if (err) return res.status(500).json({ error: 'Database error' });
-    res.json(rows);
+    const safe = rows.map(r => ({
+      ...r,
+      name: esc(r.name),
+      description: esc(r.description)
+    }));
+    res.json(safe);
   });
 });
 
@@ -309,12 +323,17 @@ app.get('/api/file', (req, res) => {
   else res.status(404).json({ error: 'File not found' });
 });
 
+// こちらも単品取得時にエスケープ
 app.get('/api/product/:id', (req, res) => {
   const q = `SELECT * FROM products WHERE id = ${req.params.id}`;
   db.get(q, (err, row) => {
     if (err) return res.status(500).json({ error: 'Database error' });
     if (!row) return res.status(404).json({ error: 'Product not found' });
-    res.json(row);
+    res.json({
+      ...row,
+      name: esc(row.name),
+      description: esc(row.description)
+    });
   });
 });
 

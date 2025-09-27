@@ -102,71 +102,84 @@
 
   <!-- カート描画（localStorage を使用） -->
   <script>
+    function jget(k,f){ try{ return JSON.parse(localStorage.getItem(k)||'null') ?? f; }catch{ return f; } }
+    function jset(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
+    const CART_KEY='cart';
+  
+    function getCart(){ return jget(CART_KEY, []); }
+    function setCart(a){ jset(CART_KEY, a); }
+  
+    const pid = (it)=> Number(it.id ?? it.productId);
+    const qtt = (it)=> Number((it.qty ?? it.quantity) || 0);
+  
     async function fetchProduct(id){
       const r = await fetch(`/api/product/${id}`);
       if(!r.ok) throw new Error('商品取得に失敗');
       return r.json();
     }
-
-    function getCart(){
-      try{ return JSON.parse(localStorage.getItem('cart')||'[]'); }
-      catch{ return []; }
-    }
-    function setCart(arr){
-      localStorage.setItem('cart', JSON.stringify(arr));
-    }
-
+  
     async function renderCart(){
       const itemsDiv = document.getElementById('items');
       const totalEl  = document.getElementById('total');
       const cart     = getCart();
-
-      if(cart.length===0){
+  
+      if(!cart.length){
         itemsDiv.innerHTML = '<p>カートは空です</p>';
         totalEl.textContent = '¥0';
         return;
       }
-
+  
       let total = 0;
       let html  = '';
-
+  
       for(const it of cart){
+        const id  = pid(it);
+        const qty = qtt(it) || 1;
+  
         try{
-          const p = await fetchProduct(it.productId);
-          const t = p.price * it.quantity;
-          total  += t;
-
+          const p = await fetchProduct(id);
+          const price = Number(p.price) || 0;
+          const t = price * qty;
+          total += t;
+  
           html += `
             <div class="cart-item">
               <div>
-                <h4>${p.name}</h4>
-                <p>数量: ${it.quantity}</p>
+                <h4>${p.name || ('#'+id)}</h4>
+                <p>数量: ${qty}</p>
               </div>
               <div>
-                <span class="product-price">¥${t}</span>
-                <button class="btn btn-danger" onclick="rmItem(${it.productId})">削除</button>
+                <span class="product-price">¥${t.toFixed(2)}</span>
+                <button class="btn btn-danger" onclick="rmItem(${id})">削除</button>
               </div>
             </div>`;
         }catch(e){
-          console.error(e);
+          // 取得失敗でも最低限表示
+          html += `
+            <div class="cart-item">
+              <div><h4>#${id}</h4><p>数量: ${qty}</p></div>
+              <div><span class="product-price">¥?</span>
+                <button class="btn btn-danger" onclick="rmItem(${id})">削除</button>
+              </div>
+            </div>`;
         }
       }
-
-      itemsDiv.innerHTML  = html || '<p>カートの読み込みに失敗しました</p>';
+  
+      itemsDiv.innerHTML  = html;
       totalEl.textContent = '¥' + total.toFixed(2);
     }
-
+  
     function rmItem(id){
-      const next = getCart().filter(i => i.productId !== id);
+      const next = getCart().filter(i => (i.id ?? i.productId) !== id);
       setCart(next);
       renderCart();
     }
-
-    // グローバル公開（ボタン onclick 用）
+  
     window.rmItem = rmItem;
-
-    // 初期描画
+    window.renderCart = renderCart;
+  
     renderCart();
   </script>
+  
 </body>
 </html>
