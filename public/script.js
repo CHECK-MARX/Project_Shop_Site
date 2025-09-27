@@ -3,14 +3,20 @@
   if (window.__SHOP_SCRIPT_LOADED__) return;
   window.__SHOP_SCRIPT_LOADED__ = true;
 
-  // ===== 小ユーティリティ =====
+  // ===== Utils =====
   const $id  = (id) => document.getElementById(id);
   const jget = (k, fb=null) => { try { return JSON.parse(localStorage.getItem(k) || 'null') ?? fb; } catch { return fb; } };
   const jset = (k, v) => localStorage.setItem(k, JSON.stringify(v));
   const jdel = (k) => localStorage.removeItem(k);
   const num  = (v, d=0) => (v===null||v===undefined||v==='' ? d : Number(v));
 
-  // ===== 非ブロッキング・トースト =====
+  const isLoggedIn = () => {
+    const token = localStorage.getItem('token');
+    const user  = jget('user', null);
+    return !!token && !!user && !!user.username;
+  };
+
+  // ===== Toast =====
   function showToast(msg, ms=1400) {
     let host = $id('toaster');
     if (!host) {
@@ -28,7 +34,7 @@
     setTimeout(() => el.remove(), ms);
   }
 
-  // ===== モーダル =====
+  // ===== Modal =====
   function openModal(id){
     const el = $id(id);
     if (!el) return;
@@ -46,11 +52,10 @@
     el.setAttribute('aria-hidden','true');
     document.body.classList.remove('modal-open');
   }
-  // ★ auth.js から呼べるよう公開
   window.openModal  = openModal;
   window.closeModal = closeModal;
 
-  // ===== カート（ユーザ別に保存）=====
+  // ===== Cart (user-scoped mirror) =====
   const CART_KEY = 'cart';
   const getUser = () => jget('user', null);
   const userCartKey = (u) => `cart:user:${String(u?.username||'').toLowerCase()}`;
@@ -59,7 +64,7 @@
   const setCart = (a) => {
     jset(CART_KEY, a);
     const u = getUser();
-    if (u?.username) jset(userCartKey(u), a); // ログイン中はユーザ別にもミラー
+    if (u?.username) jset(userCartKey(u), a);
     updateCartBadge();
   };
   const clearCart = () => { jdel(CART_KEY); updateCartBadge(); try { window.renderCart && window.renderCart(); } catch{} };
@@ -81,11 +86,20 @@
     try { window.renderCart && window.renderCart(); } catch {}
   }
 
-  // ===== 認証UI =====
+  // ===== Pending Add (未ログインで押された 1 件を保存しておく) =====
+  const PENDING_KEY = '__pendingAdd';
+  const queuePendingAdd   = (info) => sessionStorage.setItem(PENDING_KEY, JSON.stringify(info));
+  const consumePendingAdd = () => {
+    const raw = sessionStorage.getItem(PENDING_KEY);
+    if (!raw) return;
+    sessionStorage.removeItem(PENDING_KEY);
+    try { const info = JSON.parse(raw); info && addToCartAny(info); } catch {}
+  };
+
+  // ===== Auth UI =====
   function updateAuthUI(){
-    const token = localStorage.getItem('token');
+    const loggedIn = isLoggedIn();
     const user  = getUser();
-    const loggedIn = !!token && !!user;
 
     const loginBtn    = $id('loginBtn');
     const registerBtn = $id('registerBtn');
@@ -104,12 +118,13 @@
       }
       profileLink && (profileLink.style.display='inline');
 
-      // ★ ログイン時：ユーザ別カートを復元
+      // カート復元 & モーダル閉
       restoreUserCartIfNeeded();
-
-      // ★ ログイン成功後は常にモーダルを閉じる（auth.js が呼ばなくても閉じる）
       closeModal('loginModal');
       closeModal('registerModal');
+
+      // ★ ログイン直後に保留していた追加を実行
+      consumePendingAdd();
     } else {
       loginBtn    && (loginBtn.style.display='inline-block');
       registerBtn && (registerBtn.style.display='inline-block');
@@ -126,7 +141,6 @@
   window.updateAuthUI = updateAuthUI;
 
   function logout(){
-    // 退避＆復元フラグクリア
     const u = getUser();
     persistUserCart();
     if (u?.username) sessionStorage.removeItem(`__restored:${u.username}`);
@@ -141,10 +155,28 @@
   }
   window.logout = logout;
 
-  // ===== カート追加 =====
+  // ===== Add to cart (with login guard) =====
   const getPid = (it) => num(it?.id ?? it?.productId, NaN);
 
   async function addToCartAny(arg){
+    // ★ 未ログインはブロックしてモーダル表示＆保留
+    if (!isLoggedIn()){
+      // 取得できるだけ情報を持っておく
+      let pid, name='', price=0;
+      if (typeof arg === 'object' && arg){
+        pid   = num(arg.id ?? arg.productId);
+        name  = arg.name  || '';
+        price = num(arg.price, 0);
+      } else {
+        pid = num(arg);
+      }
+      queuePendingAdd({ id: pid, name, price });
+      showToast('ログイン後にカートへ追加します');
+      openModal('loginModal');
+      return;
+    }
+
+    // ログイン済みなら通常追加
     let pid, name='', price=0;
     if (typeof arg === 'object' && arg){
       pid   = num(arg.id ?? arg.productId);
@@ -182,7 +214,7 @@
   window.addToCart     = (id)=>addToCartAny(id);
   window.addToCartById = (id)=>addToCartAny(id);
 
-  // ===== バッジ =====
+  // ===== Badge =====
   function updateCartBadge(){
     const el = $id('cartCount');
     if (!el) return;
@@ -191,7 +223,7 @@
     el.style.display = total>0 ? 'inline-block' : 'none';
   }
 
-  // ===== 商品一覧描画（products.html 用）=====
+  // ===== Products list (for products.html) =====
   async function api(url){
     const r = await fetch(url);
     const d = await r.json().catch(()=>({}));
@@ -240,35 +272,37 @@
   }
   window.loadProducts = loadProducts;
 
-  // ===== クリック委譲（add-to-cart / モーダル閉）=====
+  // ===== Click delegation (close modal / add-to-cart) =====
   document.addEventListener('click', (ev) => {
     const t = ev.target;
     if (t.closest('#loginClose'))    return closeModal('loginModal');
     if (t.closest('#registerClose')) return closeModal('registerModal');
 
     const btn = t.closest('[data-add],[data-product-id],[data-id],.add-to-cart,button');
-    if (btn){
-      const label = (btn.textContent||'').trim();
-      if (!(btn.matches('[data-add],[data-product-id],[data-id],.add-to-cart') || /カートに追加|Add to Cart/i.test(label))) return;
+    if (!btn) return;
 
-      if (btn.__cartHandling) return;
-      btn.__cartHandling = true;
+    // カートに追加らしきボタンのみ処理
+    const label = (btn.textContent||'').trim();
+    const isAdd = btn.matches('[data-add],[data-product-id],[data-id],.add-to-cart') || /カートに追加|Add to Cart/i.test(label);
+    if (!isAdd) return;
 
-      let id    = btn.dataset.id || btn.dataset.productId;
-      let name  = btn.dataset.name;
-      let price = btn.dataset.price;
+    if (btn.__cartHandling) return;
+    btn.__cartHandling = true;
 
-      if (!id){
-        const card = btn.closest('.product-card');
-        id    = card?.dataset?.id;
-        name  = name  || card?.dataset?.name  || card?.querySelector('h3')?.textContent?.trim();
-        price = price || card?.dataset?.price || (card?.querySelector('.product-price')?.textContent||'').replace(/[^\d.]/g,'');
-      }
-      addToCartAny({ id, name, price }).finally(()=> { btn.__cartHandling = false; });
+    let id    = btn.dataset.id || btn.dataset.productId;
+    let name  = btn.dataset.name;
+    let price = btn.dataset.price;
+
+    if (!id){
+      const card = btn.closest('.product-card');
+      id    = card?.dataset?.id;
+      name  = name  || card?.dataset?.name  || card?.querySelector('h3')?.textContent?.trim();
+      price = price || card?.dataset?.price || (card?.querySelector('.product-price')?.textContent||'').replace(/[^\d.]/g,'');
     }
+    addToCartAny({ id, name, price }).finally(()=> { btn.__cartHandling = false; });
   });
 
-  // ===== 認証状態ウォッチャ（保険）=====
+  // ===== Auth change watcher =====
   let _lastToken = localStorage.getItem('token') || null;
   let _lastUser  = (getUser()?.username) || null;
   setInterval(() => {
@@ -277,11 +311,11 @@
     if (tok !== _lastToken || usr !== _lastUser) {
       _lastToken = tok;
       _lastUser  = usr;
-      updateAuthUI(); // ログイン時はここでモーダルも閉じる
+      updateAuthUI();
     }
   }, 700);
 
-  // ===== 起動配線 =====
+  // ===== Boot =====
   document.addEventListener('DOMContentLoaded', ()=>{
     $id('loginBtn')?.addEventListener('click', ()=> openModal('loginModal'));
     $id('registerBtn')?.addEventListener('click', ()=> openModal('registerModal'));
