@@ -1,507 +1,186 @@
-/* Vulnerable Shopping Site Styles */
-
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
-
-body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    line-height: 1.6;
-    color: #fff;
-    background:
-        radial-gradient(1200px 600px at 10% -10%, rgba(118,75,162,0.35), transparent),
-        radial-gradient(1200px 600px at 110% 110%, rgba(102,126,234,0.35), transparent),
-        linear-gradient(135deg, #0f1020 0%, #1a1033 50%, #101b3a 100%);
-    perspective: 1000px;
-}
-
-/* Header Styles */
-.navbar {
-    background: rgba(20, 22, 60, 0.6);
-    backdrop-filter: blur(10px);
-    color: white;
-    padding: 1rem 2rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.25);
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-}
-
-.nav-brand h1 {
-    font-size: 1.8rem;
-    font-weight: bold;
-}
-
-.nav-links {
-    display: flex;
-    align-items: center;
-    gap: 2rem;
-}
-
-.nav-links a {
-    color: white;
-    text-decoration: none;
-    font-weight: 600;
-    position: relative;
-    transition: transform 0.2s ease, color 0.3s ease;
-}
-
-.nav-links a:hover {
-    color: #ffd700;
-    transform: translateZ(8px) rotateX(5deg);
-}
-
-.auth-buttons {
-    display: flex;
-    gap: 1rem;
-}
-
-/* Button Styles */
-.btn {
-    padding: 0.75rem 1.5rem;
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-    font-size: 1rem;
-    font-weight: 500;
-    transition: transform 0.2s ease, box-shadow 0.3s ease, background 0.3s ease;
-    text-decoration: none;
-    display: inline-block;
-    text-align: center;
-    box-shadow: 0 10px 20px rgba(0,0,0,0.25);
-    transform-style: preserve-3d;
-}
-
-.btn-primary {
-    background-color: #007bff;
-    color: white;
-}
-
-.btn-primary:hover {
-    background-color: #3b82f6;
-    transform: translateY(-3px) translateZ(8px);
-}
-
-.btn-secondary {
-    background-color: #6c757d;
-    color: white;
-}
-
-.btn-secondary:hover {
-    background-color: #545b62;
-    transform: translateY(-2px);
-}
-
-.btn-success {
-    background-color: #28a745;
-    color: white;
-}
-
-.btn-success:hover {
-    background-color: #1e7e34;
-    transform: translateY(-2px);
-}
-
-.btn-danger {
-    background-color: #dc3545;
-    color: white;
-}
-
-.btn-danger:hover {
-    background-color: #c82333;
-    transform: translateY(-2px);
-}
-
-.btn-warning {
-    background-color: #ffc107;
-    color: #212529;
-}
-
-.btn-warning:hover {
-    background-color: #e0a800;
-    transform: translateY(-2px);
-}
-
-.btn-info {
-    background-color: #17a2b8;
-    color: white;
-}
-
-.btn-info:hover {
-    background-color: #138496;
-    transform: translateY(-2px);
-}
-
-/* Hero Section */
-.hero {
-    background: radial-gradient(1200px 600px at 50% -20%, rgba(123,97,255,0.35), transparent),
-                linear-gradient(135deg, rgba(102,126,234,0.2), rgba(118,75,162,0.2));
-    color: white;
-    padding: 4rem 2rem;
-    text-align: center;
-    transform-style: preserve-3d;
-}
-
-.hero-content h2 {
-    font-size: 2.5rem;
-    margin-bottom: 1rem;
-}
-
-.hero-content p {
-    font-size: 1.2rem;
-    margin-bottom: 2rem;
-    opacity: 0.9;
-}
-
-.search-container {
-    max-width: 500px;
-    margin: 0 auto;
-    display: flex;
-    gap: 1rem;
-}
-
-.search-input {
-    flex: 1;
-    padding: 1rem;
-    border: none;
-    border-radius: 5px;
-    font-size: 1rem;
-}
-
-/* Modal Styles */
-.modal {
-    display: none;
-    position: fixed;
-    z-index: 1000;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-    background-color: rgba(0,0,0,0.5);
-}
-
-.modal-content {
-    background-color: white;
-    margin: 5% auto;
-    padding: 2rem;
-    border-radius: 10px;
-    width: 90%;
-    max-width: 400px;
-    position: relative;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-}
-
-.close {
-    color: #aaa;
-    float: right;
-    font-size: 28px;
-    font-weight: bold;
-    cursor: pointer;
-    position: absolute;
-    right: 1rem;
-    top: 1rem;
-}
-
-.close:hover {
-    color: #000;
-}
-
-/* Form Styles */
-.form-group {
-    margin-bottom: 1.5rem;
-}
-
-.form-group label {
-    display: block;
-    margin-bottom: 0.5rem;
-    font-weight: 500;
-}
-
-.form-group input {
-    width: 100%;
-    padding: 0.75rem;
-    border: 2px solid #ddd;
-    border-radius: 5px;
-    font-size: 1rem;
-    transition: border-color 0.3s ease;
-}
-
-.form-group input:focus {
-    outline: none;
-    border-color: #007bff;
-}
-
-/* Products Section */
-.products-section {
-    padding: 3rem 2rem;
-    max-width: 1200px;
-    margin: 0 auto;
-}
-
-.products-section h2 {
-    text-align: center;
-    margin-bottom: 2rem;
-    font-size: 2rem;
-    color: #333;
-}
-
-.products-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 2rem;
-}
-
-.product-card {
-    background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
-    border-radius: 10px;
-    padding: 1.5rem;
-    box-shadow: 0 15px 35px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.05);
-    transition: transform 0.2s ease, box-shadow 0.3s ease;
-    transform: translateZ(0);
-    border: 1px solid rgba(255,255,255,0.06);
-}
-
-.product-card:hover {
-    transform: translateY(-8px) translateZ(12px) rotateX(2deg);
-    box-shadow: 0 25px 55px rgba(0,0,0,0.45);
-}
-
-.product-card h3 {
-    color: #fff;
-    margin-bottom: 1rem;
-    font-size: 1.3rem;
-}
-
-.product-card p {
-    color: #cfd8ff;
-    margin-bottom: 1rem;
-    line-height: 1.5;
-}
-
-.product-price {
-    font-size: 1.5rem;
-    font-weight: bold;
-    color: #34d399;
-    margin-bottom: 1rem;
-}
-
-.product-stock {
-    color: #a5b4fc;
-    margin-bottom: 1rem;
-}
-
-/* Cart Section */
-.cart-section {
-    padding: 3rem 2rem;
-    max-width: 800px;
-    margin: 0 auto;
-}
-
-.cart-section h2 {
-    text-align: center;
-    margin-bottom: 2rem;
-    font-size: 2rem;
-    color: #333;
-}
-
-.cart-items {
-    background: white;
-    border-radius: 10px;
-    padding: 2rem;
-    margin-bottom: 2rem;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-}
-
-.cart-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1rem 0;
-    border-bottom: 1px solid #eee;
-}
-
-.cart-item:last-child {
-    border-bottom: none;
-}
-
-.cart-total {
-    text-align: center;
-    background: white;
-    border-radius: 10px;
-    padding: 2rem;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-}
-
-.cart-total h3 {
-    font-size: 1.5rem;
-    margin-bottom: 1rem;
-    color: #333;
-}
-
-/* Admin Section */
-.admin-section {
-    padding: 3rem 2rem;
-    max-width: 1000px;
-    margin: 0 auto;
-}
-
-.admin-section h2 {
-    text-align: center;
-    margin-bottom: 2rem;
-    font-size: 2rem;
-    color: #333;
-}
-
-.admin-controls {
-    display: flex;
-    gap: 1rem;
-    justify-content: center;
-    margin-bottom: 2rem;
-    flex-wrap: wrap;
-}
-
-.admin-content {
-    background: white;
-    border-radius: 10px;
-    padding: 2rem;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-    min-height: 200px;
-}
-
-/* Vulnerability Testing Section */
-.vulnerability-section {
-    padding: 3rem 2rem;
-    max-width: 1000px;
-    margin: 0 auto;
-    background: #fff3cd;
-    border-radius: 10px;
-    margin-top: 2rem;
-}
-
-.vulnerability-section h2 {
-    text-align: center;
-    margin-bottom: 2rem;
-    color: #856404;
-}
-
-.vuln-tools {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 2rem;
-}
-
-.tool-group {
-    background: white;
-    padding: 1.5rem;
-    border-radius: 8px;
-    box-shadow: 0 3px 10px rgba(0,0,0,0.1);
-}
-
-.tool-group h3 {
-    color: #dc3545;
-    margin-bottom: 1rem;
-    font-size: 1.1rem;
-}
-
-.vuln-input {
-    width: 100%;
-    padding: 0.75rem;
-    border: 2px solid #dc3545;
-    border-radius: 5px;
-    margin-bottom: 1rem;
-    font-family: monospace;
-}
-
-/* Footer */
-footer {
-    background: #333;
-    color: white;
-    text-align: center;
-    padding: 2rem;
-    margin-top: 3rem;
-}
-
-footer p {
-    margin-bottom: 0.5rem;
-}
-
-/* Responsive Design */
-@media (max-width: 768px) {
-    .navbar {
-        flex-direction: column;
-        gap: 1rem;
-    }
-    
-    .nav-links {
-        flex-direction: column;
-        gap: 1rem;
-    }
-    
-    .hero-content h2 {
-        font-size: 2rem;
-    }
-    
-    .search-container {
-        flex-direction: column;
-    }
-    
-    .admin-controls {
-        flex-direction: column;
-        align-items: center;
-    }
-    
-    .vuln-tools {
-        grid-template-columns: 1fr;
-    }
-}
-
-/* Loading Animation */
-.loading {
-    display: inline-block;
-    width: 20px;
-    height: 20px;
-    border: 3px solid #f3f3f3;
-    border-top: 3px solid #007bff;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
-
-/* Alert Styles */
-.alert {
-    padding: 1rem;
-    margin: 1rem 0;
-    border-radius: 5px;
-    font-weight: 500;
-}
-
-.alert-success {
-    background-color: #d4edda;
-    color: #155724;
-    border: 1px solid #c3e6cb;
-}
-
-.alert-danger {
-    background-color: #f8d7da;
-    color: #721c24;
-    border: 1px solid #f5c6cb;
-}
-
-.alert-warning {
-    background-color: #fff3cd;
-    color: #856404;
-    border: 1px solid #ffeaa7;
-}
-
-.alert-info {
-    background-color: #d1ecf1;
-    color: #0c5460;
-    border: 1px solid #bee5eb;
-}
+/* =========================
+   Vulnerable Shopping Site (reset & fixed)
+   ※ このファイルを styles.css として丸ごと置き換え
+   ========================= */
+
+   * { margin:0; padding:0; box-sizing:border-box; }
+
+   :root { --nav-h: 72px; }
+   
+   html, body { height:100%; }
+   
+   body{
+     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+     line-height:1.6;
+     color:#fff;
+     background:
+       radial-gradient(1200px 600px at 10% -10%, rgba(118,75,162,.35), transparent),
+       radial-gradient(1200px 600px at 110% 110%, rgba(102,126,234,.35), transparent),
+       linear-gradient(135deg, #0f1020 0%, #1a1033 50%, #101b3a 100%);
+     /* ⛔ 3D系はスタッキング問題を起こすので削除 */
+     padding-top: var(--nav-h); /* 固定ナビぶん押し下げ */
+   }
+   
+   /* ===== Header / Navbar (最前面で固定) ===== */
+   header, .navbar{
+     position:fixed !important;
+     top:0; left:0; right:0;
+     z-index:99999 !important;
+     background: rgba(20,22,60,.88);
+     backdrop-filter: blur(10px);
+     border-bottom:1px solid rgba(255,255,255,.08);
+     color:#fff;
+   }
+   
+   .navbar{
+     display:flex; justify-content:space-between; align-items:center;
+     padding:1rem 2rem;
+   }
+   
+   .nav-brand h1{ font-size:1.8rem; font-weight:700; }
+   
+   .nav-links{ display:flex; align-items:center; gap:2rem; }
+   .nav-links a{
+     color:#fff; text-decoration:none; font-weight:600;
+     position:relative; transition:color .2s ease, transform .2s ease;
+     /* ⛔ ヘッダー直下の3D変形は抑える */
+     transform:none !important;
+   }
+   .nav-links a:hover{ color:#ffd700; transform:translateY(-1px); }
+   
+   .auth-buttons{ display:flex; gap:1rem; }
+   .user-pill{ display:none; margin-left:10px; padding:6px 10px; border-radius:999px;
+     background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18); font-weight:600; }
+   .cart-badge{ display:none; margin-left:6px; min-width:18px; height:18px; padding:0 6px;
+     border-radius:9px; background:#2d7ef7; color:#fff; font-size:12px; line-height:18px; text-align:center; }
+   
+   /* ===== Buttons ===== */
+   .btn{
+     padding:.7rem 1.2rem; border:none; border-radius:8px; cursor:pointer;
+     font-size:1rem; font-weight:600; display:inline-block; text-align:center;
+     transition:filter .15s ease, transform .1s ease;
+     box-shadow: 0 10px 20px rgba(0,0,0,.25);
+   }
+   .btn:active{ transform:translateY(1px); }
+   .btn-primary{ background:#2d7ef7; color:#fff; }
+   .btn-primary:hover{ filter:brightness(1.05); }
+   .btn-secondary{ background:#6c757d; color:#fff; }
+   .btn-success{ background:#28a745; color:#fff; }
+   .btn-danger{ background:#dc3545; color:#fff; }
+   .btn-warning{ background:#ffc107; color:#212529; }
+   .btn-info{ background:#17a2b8; color:#fff; }
+   
+   /* ===== Hero ===== */
+   .hero{
+     background:
+       radial-gradient(1200px 600px at 50% -20%, rgba(123,97,255,.35), transparent),
+       linear-gradient(135deg, rgba(102,126,234,.2), rgba(118,75,162,.2));
+     padding:4rem 2rem 2rem;
+     text-align:center;
+     position:relative; z-index:1; /* ナビより下の層 */
+   }
+   .hero-content h2{ font-size:2.5rem; margin-bottom:1rem; }
+   .hero-content p{ font-size:1.1rem; margin-bottom:1.4rem; opacity:.9; }
+   .search-container{ max-width:520px; margin:0 auto; display:flex; gap:.8rem; }
+   .search-input{
+     flex:1; padding:1rem; border:1px solid rgba(255,255,255,.15);
+     border-radius:10px; font-size:1rem; background:rgba(255,255,255,.08); color:#fff;
+   }
+   
+   /* ===== Products ===== */
+   .products-section{ padding:2rem; max-width:1200px; margin:0 auto; position:relative; z-index:1; }
+   .products-grid{
+     display:grid; grid-template-columns:repeat(auto-fit, minmax(280px,1fr)); gap:1.4rem;
+   }
+   .product-card{
+     background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
+     border-radius:12px; padding:1rem; border:1px solid rgba(255,255,255,.06);
+     box-shadow:0 15px 35px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.05);
+     transition:transform .15s ease, box-shadow .2s ease;
+   }
+   .product-card:hover{ transform:translateY(-4px); box-shadow:0 25px 55px rgba(0,0,0,.45); }
+   
+   .product-img, .products-grid img{
+     width:100%; height:220px; object-fit:cover; border-radius:10px; display:block;
+   }
+   .product-card h3{ color:#fff; margin:12px 0 8px; font-size:1.1rem; }
+   .product-card p{ color:#cfd8ff; margin-bottom:.8rem; line-height:1.5; min-height:2.8em; }
+   .product-price{ font-size:1.3rem; font-weight:700; color:#34d399; margin:.3rem 0 .6rem; }
+   .product-stock{ color:#a5b4fc; margin-bottom:.8rem; }
+   
+   /* ===== Cart ===== */
+   .cart-section{ padding:2rem; max-width:800px; margin:0 auto; }
+   .cart-items, .cart-total{
+     background:#0f162b; border:1px solid #27334d; color:#e9edf6;
+     border-radius:12px; padding:1.2rem; box-shadow:0 10px 24px rgba(0,0,0,.35);
+   }
+   .cart-items{ margin-bottom:1.2rem; }
+   .cart-item{
+     display:flex; justify-content:space-between; align-items:center;
+     padding:1rem 0; border-bottom:1px solid rgba(255,255,255,.08);
+   }
+   .cart-item:last-child{ border-bottom:none; }
+   
+   /* ===== Admin / Vulnerability (そのまま) ===== */
+   .admin-section{ padding:2rem; max-width:1000px; margin:0 auto; }
+   .admin-controls{ display:flex; gap:1rem; flex-wrap:wrap; justify-content:center; margin-bottom:1.4rem; }
+   .admin-content{
+     background:#0f162b; border:1px solid #27334d; border-radius:12px; padding:1.2rem; min-height:200px;
+   }
+   .vulnerability-section{
+     padding:2rem; max-width:1000px; margin:2rem auto 0; background:#fff3cd; color:#000; border-radius:10px;
+   }
+   .vuln-tools{ display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:1.2rem; }
+   .tool-group{ background:#fff; padding:1rem; border-radius:8px; box-shadow:0 3px 10px rgba(0,0,0,.1); }
+   .tool-group h3{ color:#dc3545; margin-bottom:.8rem; font-size:1.05rem; }
+   .vuln-input{ width:100%; padding:.7rem; border:2px solid #dc3545; border-radius:6px; margin-bottom:.8rem; font-family:monospace; }
+   
+   /* ===== Modal (open時のみクリックを奪う) ===== */
+   .modal{
+     display:none; position:fixed; inset:0; z-index:100000; /* ナビより上 */
+     place-items:center; padding:24px;
+   }
+   .modal.open{ display:grid; }
+   .modal::before{
+     content:""; position:absolute; inset:0; background:rgba(5,10,20,.64); backdrop-filter:blur(3px);
+     pointer-events:auto; /* 背景クリックで閉じられる */
+   }
+   .modal.hidden{ display:none; }
+   .modal-content{
+     position:relative; z-index:1; width:clamp(320px,90vw,420px); padding:18px; border-radius:14px;
+     border:1px solid #27334d; background:linear-gradient(180deg,rgba(29,37,61,.96),rgba(18,24,42,.96));
+     box-shadow:0 12px 30px rgba(0,0,0,.45),0 0 0 1px rgba(255,255,255,.02) inset; color:#e9edf6;
+     display:flex; flex-direction:column; gap:10px;
+   }
+   .modal-close{
+     position:absolute; top:10px; right:10px; width:28px; height:28px; display:grid; place-items:center;
+     font-size:18px; line-height:1; border-radius:8px; border:1px solid #2b374f; background:#0f1729; color:#cdd7ea; cursor:pointer;
+   }
+   body.modal-open{ overflow:hidden; }
+   
+   /* ===== Toaster (クリックを邪魔しない) ===== */
+   #toaster{ position:fixed; left:50%; bottom:24px; transform:translateX(-50%); z-index:50000; display:grid; gap:8px; pointer-events:none; }
+   
+   /* ===== Footer ===== */
+   footer{ background:#333; color:#fff; text-align:center; padding:2rem; margin-top:3rem; }
+   footer p{ margin-bottom:.5rem; }
+   
+   /* ===== Responsive ===== */
+   @media (max-width:768px){
+     .navbar{ flex-direction:column; gap:.8rem; }
+     .nav-links{ flex-direction:column; gap:.8rem; }
+     .hero-content h2{ font-size:2rem; }
+     .search-container{ flex-direction:column; }
+     .admin-controls{ flex-direction:column; align-items:center; }
+     .vuln-tools{ grid-template-columns:1fr; }
+   }
+   
+   /* ===== Utilities ===== */
+   .loading{ display:inline-block; width:20px; height:20px; border:3px solid #f3f3f3; border-top:3px solid #007bff; border-radius:50%; animation:spin 1s linear infinite; }
+   @keyframes spin{ 0%{transform:rotate(0)} 100%{transform:rotate(360deg)} }
+   .alert{ padding:1rem; margin:1rem 0; border-radius:5px; font-weight:500; }
+   .alert-success{ background:#d4edda; color:#155724; border:1px solid #c3e6cb; }
+   .alert-danger{ background:#f8d7da; color:#721c24; border:1px solid #f5c6cb; }
+   .alert-warning{ background:#fff3cd; color:#856404; border:1px solid #ffeaa7; }
+   .alert-info{ background:#d1ecf1; color:#0c5460; border:1px solid #bee5eb; }
+   

@@ -1,231 +1,124 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>管理者ページ - Vulnerable Shop</title>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>管理者パネル - Vulnerable Shop</title>
   <link rel="stylesheet" href="./styles.css"/>
   <style>
-    .user-pill{display:inline-flex;align-items:center;gap:6px;margin-left:10px;padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);font-weight:600;letter-spacing:.02em}
-    .admin-wrap{max-width:1200px;margin:36px auto 80px;padding:0 16px}
-    .admin-head{display:flex;align-items:center;gap:14px;margin-bottom:16px}
-    .danger{display:none;margin-bottom:12px;color:#ff6b6b}
-    .note{display:none;margin-bottom:12px;color:#cfe0ff}
-    .admin-table{width:100%;border-collapse:collapse;border-radius:12px;overflow:hidden}
-    .admin-table thead th{background:#0f1b31;color:#cfe0ff;text-align:left;font-weight:700;padding:12px 14px;border-bottom:1px solid #27334d}
-    .admin-table tbody td{padding:12px 14px;border-bottom:1px solid #1f2a44;vertical-align:middle}
-    .muted{opacity:.7}
-    .actions{display:flex;gap:8px}
-    .btn-xs{height:32px;padding:0 10px;font-size:12px}
-    /* モーダル */
-    .modal{position:fixed;inset:0;display:none;place-items:center;padding:24px;z-index:1000}
-    .modal.open{display:grid}
-    .modal::before{content:"";position:absolute;inset:0;background:rgba(5,10,20,.64);backdrop-filter:blur(3px)}
-    .modal-card{position:relative;z-index:1;width:min(92vw,420px);border:1px solid #27334d;border-radius:14px;padding:18px;background:linear-gradient(180deg,rgba(29,37,61,.96),rgba(18,24,42,.96));color:#e9edf6}
-    .modal-card h3{margin:0 0 12px;font-size:16px}
-    .modal-card label{font-size:12px;opacity:.9}
-    .modal-card input{width:100%;height:40px;margin:6px 0 14px;padding:10px 12px;border-radius:10px;border:1px solid #2c3a59;background:#101829;color:#e9edf6}
-    .modal-actions{display:flex;gap:10px;justify-content:flex-end}
+    .guard {max-width:960px;margin:24px auto;padding:16px;border:1px solid #27334d;border-radius:12px;background:#0f162b;color:#e9edf6}
+    .table {width:100%;border-collapse:collapse;margin-top:12px}
+    .table th,.table td{border-bottom:1px solid rgba(255,255,255,.1);padding:10px;text-align:left}
+    .table th{opacity:.8}
   </style>
 </head>
 <body>
 <header>
   <nav class="navbar">
-    <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
+    <div class="nav-brand"><h1>🛠 管理者パネル</h1></div>
     <div class="nav-links">
       <a href="./index.html">ホーム</a>
       <a href="./products.html">商品</a>
       <a href="./cart.html">カート</a>
-      <a href="./java-vuln.html" style="color:#ffd700;font-weight:bold;">Java脆弱性デモ</a>
       <div class="auth-buttons">
         <button id="logoutBtn" class="btn btn-danger">ログアウト</button>
       </div>
-      <span id="navUser" class="user-pill"></span>
     </div>
   </nav>
 </header>
 
-<main class="admin-wrap">
-  <div class="admin-head">
-    <h2>管理者ページ（登録ユーザー一覧 / メール / パスワード）</h2>
-    <span class="muted">※ 教育用につき機微情報を表示しています</span>
-  </div>
+<main>
+  <section class="admin-section" style="margin-top:16px">
+    <h2>ユーザー一覧</h2>
+    <div id="adminInfo" class="guard">読み込み中...</div>
+    <div id="adminContent" class="admin-content" style="margin-top:16px">
+      <table class="table" id="usersTable">
+        <thead><tr><th>ID</th><th>ユーザー名</th><th>メール</th><th>権限</th><th>作成日時</th></tr></thead>
+        <tbody id="usersBody"></tbody>
+      </table>
+    </div>
 
-  <div id="errorBox" class="danger"></div>
-  <div id="demoNote" class="note"></div>
+    <div class="admin-controls">
+      <button id="backupBtn" class="btn btn-info">DBバックアップ作成</button>
+      <button id="debugBtn" class="btn btn-warning">デバッグ情報</button>
+    </div>
 
-  <div class="table-wrap">
-    <table class="admin-table" id="usersTable" aria-label="ユーザー一覧">
-      <thead>
-        <tr>
-          <th style="width:82px">ID</th>
-          <th>ユーザー名</th>
-          <th>メール</th>
-          <th>パスワード</th>
-          <th style="width:120px">ロール</th>
-          <th style="width:200px">操作</th>
-        </tr>
-      </thead>
-      <tbody id="usersBody">
-        <tr><td colspan="6" class="muted">読み込み中…</td></tr>
-      </tbody>
-    </table>
-  </div>
+    <pre id="debugOut" class="guard" style="display:none;"></pre>
+  </section>
 </main>
 
-<!-- パスワード変更モーダル -->
-<div id="pwdModal" class="modal" aria-hidden="true">
-  <div class="modal-card">
-    <h3 id="pwdTitle">パスワード変更</h3>
-    <div>
-      <label for="pwdInput">新しいパスワード</label>
-      <input id="pwdInput" type="password" placeholder="新しいパスワード" />
-    </div>
-    <div class="modal-actions">
-      <button id="pwdCancel" class="btn btn-secondary btn-xs">キャンセル</button>
-      <button id="pwdSave" class="btn btn-primary btn-xs">保存</button>
-    </div>
-  </div>
-</div>
-
-<script src="./script.js"></script>
 <script>
-  const $ = s => document.querySelector(s);
-  const token = localStorage.getItem('token');
-  const user  = JSON.parse(localStorage.getItem('user') || 'null');
+  // 軽いユーティリティ
+  const jget=(k,f=null)=>{try{return JSON.parse(localStorage.getItem(k)||'null')??f;}catch{return f;}};
+  const token=localStorage.getItem('token');
+  const user =jget('user',null);
 
-  function showUserPill(){
-    const pill = $('#navUser');
-    pill.textContent = user?.username ? '👤 ' + user.username : '👤 未ログイン';
-  }
-  function showErr(msg){ const b=$('#errorBox'); b.textContent=msg; b.style.display='block'; }
-  function clearErr(){ const b=$('#errorBox'); b.textContent=''; b.style.display='none'; }
+  // 1) ガード：トークン無し/管理者でなければホームへ
+  async function guard(){
+    const info = document.getElementById('adminInfo');
+    if(!token || !user){ info.textContent='未ログインのためアクセスできません。'; setTimeout(()=>location.href='./index.html',900); return false; }
 
-  async function fetchUsers(){
-    const resp = await fetch('/api/admin/users', {
-      headers:{ Authorization:'Bearer ' + token }
-    });
-    if(!resp.ok){
-      let txt = '';
-      try { txt = (await resp.json()).error; } catch {}
-      throw new Error(txt || resp.statusText);
-    }
-    return resp.json();
+    // サーバ側判定に任せるが、早期フィードバックとしてロールも見ておく
+    if((user.role||'')!=='admin'){ info.textContent='管理者権限が必要です。'; setTimeout(()=>location.href='./index.html',900); return false; }
+
+    info.textContent='管理者でログイン中: ' + (user.username||'');
+    return true;
   }
 
-  function renderUsers(list){
-    const tb = $('#usersBody');
-    if(!Array.isArray(list) || list.length===0){
-      tb.innerHTML = '<tr><td colspan="6" class="muted">ユーザーが見つかりません</td></tr>';
-      return;
-    }
-    const rows = list.map(u=>{
-      const isRoot = String(u.username).toLowerCase()==='root';
-      const editDis = isRoot ? 'disabled title="root は編集できません"' : '';
-      const delDis  = isRoot ? 'disabled title="root は削除できません"' : '';
-      return `
+  // 2) ユーザー一覧の取得
+  async function loadUsers(){
+    const body = document.getElementById('usersBody');
+    body.innerHTML = '<tr><td colspan="5">読み込み中...</td></tr>';
+    try{
+      const r = await fetch('/api/admin/users', { headers:{Authorization:'Bearer '+token}});
+      const data = await r.json();
+      if(!r.ok) throw new Error(data.error||r.status);
+      body.innerHTML = (data||[]).map(u=>`
         <tr>
-          <td>${u.id ?? ''}</td>
-          <td>${u.username ?? ''}</td>
-          <td>${u.email ?? ''}</td>
-          <td>${u.password ?? '(不明)'}</td>
-          <td>${u.role ?? ''}</td>
-          <td class="actions">
-            <button class="btn btn-secondary btn-xs" data-action="edit" data-id="${u.id}" data-name="${u.username}" ${editDis}>編集</button>
-            <button class="btn btn-danger btn-xs"    data-action="del"  data-id="${u.id}" data-name="${u.username}" ${delDis}>削除</button>
-          </td>
-        </tr>`;
-    }).join('');
-    tb.innerHTML = rows;
-  }
-
-  async function load(){
-    clearErr();
-    $('#usersBody').innerHTML = '<tr><td colspan="6" class="muted">読み込み中…</td></tr>';
-    try{
-      const list = await fetchUsers();
-      renderUsers(list);
+          <td>${u.id}</td>
+          <td>${u.username}</td>
+          <td>${u.email||''}</td>
+          <td>${u.role||''}</td>
+          <td>${u.created_at||''}</td>
+        </tr>
+      `).join('');
     }catch(e){
-      renderUsers([]);
-      showErr('ユーザー一覧の取得に失敗しました: ' + e.message);
+      body.innerHTML = `<tr><td colspan="5" style="color:#ff9999">取得失敗: ${String(e)}</td></tr>`;
     }
   }
 
-  // ---- 削除/編集ハンドラ ----
-  $('#usersTable').addEventListener('click', async (ev)=>{
-    const btn = ev.target.closest('button[data-action]');
-    if(!btn || btn.disabled) return; // disabledは無視
-    const id   = btn.getAttribute('data-id');
-    const name = btn.getAttribute('data-name');
-    const act  = btn.getAttribute('data-action');
+  // 3) バックアップ/デバッグ
+  document.getElementById('backupBtn')?.addEventListener('click', async ()=>{
+    const name = 'backup_'+Date.now();
+    try{
+      const r = await fetch('/api/backup', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({backupName:name})});
+      const d = await r.json();
+      alert(r.ok ? `バックアップ作成: ${name}.db` : `失敗: ${d.error||r.status}`);
+    }catch(e){ alert('エラー: '+e.message); }
+  });
 
-    if(act === 'del'){
-      if(!confirm(`ユーザー「${name}」(ID:${id}) を削除しますか？`)) return;
-      try{
-        const r = await fetch('/api/admin/users/' + id, {
-          method:'DELETE',
-          headers:{ Authorization:'Bearer ' + token }
-        });
-        const d = await r.json().catch(()=>({}));
-        if(!r.ok) throw new Error(d.error || r.statusText);
-        alert('削除しました');
-        load();
-      }catch(e){
-        alert('削除に失敗: ' + e.message);
-      }
-    }
-
-    if(act === 'edit'){
-      openPwdModal({ id, name });
+  document.getElementById('debugBtn')?.addEventListener('click', async ()=>{
+    const out = document.getElementById('debugOut');
+    try{
+      const r = await fetch('/api/debug');
+      const d = await r.json();
+      out.style.display='block';
+      out.textContent = JSON.stringify(d, null, 2);
+    }catch(e){
+      out.style.display='block';
+      out.textContent = '取得失敗: '+e.message;
     }
   });
 
-  // ---- パスワード変更モーダル ----
-  let editingUser = null;
-  function openPwdModal(u){
-    editingUser = u;
-    $('#pwdTitle').textContent = `パスワード変更: ${u.name} (ID:${u.id})`;
-    $('#pwdInput').value = '';
-    $('#pwdModal').classList.add('open');
-    $('#pwdModal').setAttribute('aria-hidden', 'false');
-  }
-  function closePwdModal(){
-    $('#pwdModal').classList.remove('open');
-    $('#pwdModal').setAttribute('aria-hidden', 'true');
-    editingUser = null;
-  }
-  $('#pwdCancel').addEventListener('click', closePwdModal);
-
-  $('#pwdSave').addEventListener('click', async ()=>{
-    const pw = $('#pwdInput').value;
-    if(!pw){ alert('パスワードを入力してください'); return; }
-    try{
-      const r = await fetch('/api/admin/users/' + editingUser.id + '/password', {
-        method:'PUT',
-        headers:{
-          'Content-Type':'application/json',
-          Authorization:'Bearer ' + token
-        },
-        body: JSON.stringify({ password: pw })
-      });
-      const d = await r.json().catch(()=>({}));
-      if(!r.ok) throw new Error(d.error || r.statusText);
-      closePwdModal();
-      alert('パスワードを更新しました');
-      load();
-    }catch(e){
-      alert('更新に失敗: ' + e.message);
-    }
-  });
-
-  // ---- 画面起動 ----
+  // 4) ログアウト
   document.getElementById('logoutBtn')?.addEventListener('click', ()=>{
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    location.href = './index.html';
+    localStorage.removeItem('token'); localStorage.removeItem('user');
+    location.href='./index.html';
   });
-  showUserPill();
-  load();
+
+  (async ()=>{
+    if(await guard()) await loadUsers();
+  })();
 </script>
 </body>
 </html>

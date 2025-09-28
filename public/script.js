@@ -1,466 +1,416 @@
-// Vulnerable Shopping Site JavaScript
-// WARNING: This code contains intentional vulnerabilities for educational purposes
+/* public/script.js — single-file UI core
+   - 二重読込ガード
+   - モーダル open/close をグローバル化
+   - 認証UI更新（display_name 優先表示）
+   - 未ログイン時はカート追加をブロック→ログインモーダル表示→成功後に自動追加
+   - カートはユーザー別保存：cart:<userId>（ゲストは cart:guest）。互換の 'cart' にもミラー。
+   - products 一覧描画（data属性付き）
+   - cart.html での描画関数 window.renderCart を提供
+*/
 
-let currentUser = null;
-let cart = [];
-let authToken = null;
+(() => {
+  if (window.__SHOP_SCRIPT_LOADED__) return;
+  window.__SHOP_SCRIPT_LOADED__ = true;
 
-// CVE-2023-XXXX: Client-side XSS vulnerability
-function displayMessage(message, type = 'info') {
-    const alertDiv = document.createElement('div');
-    alertDiv.className = `alert alert-${type}`;
-    alertDiv.innerHTML = message; // CRITICAL: No output encoding - XSS vulnerability
-    document.body.appendChild(alertDiv);
-    
-    setTimeout(() => {
-        alertDiv.remove();
-    }, 5000);
-}
-
-// CVE-2023-YYYY: Insecure localStorage usage
-function saveUserData(user) {
-    // CRITICAL: Storing sensitive data in localStorage without encryption
-    localStorage.setItem('user', JSON.stringify(user));
-    localStorage.setItem('token', user.token);
-}
-
-function loadUserData() {
-    const userData = localStorage.getItem('user');
-    const token = localStorage.getItem('token');
-    
-    if (userData && token) {
-        currentUser = JSON.parse(userData);
-        authToken = token;
-        updateAuthUI();
-    }
-}
-
-// CVE-2023-ZZZZ: Weak authentication check
-function isAuthenticated() {
-    return currentUser !== null && authToken !== null;
-}
-
-function isAdmin() {
-    return currentUser && currentUser.role === 'admin';
-}
-
-function updateAuthUI() {
-    const loginBtn = document.getElementById('loginBtn');
-    const registerBtn = document.getElementById('registerBtn');
-    const logoutBtn = document.getElementById('logoutBtn');
-    const adminSection = document.getElementById('adminSection');
-    
-    if (isAuthenticated()) {
-        loginBtn.style.display = 'none';
-        registerBtn.style.display = 'none';
-        logoutBtn.style.display = 'inline-block';
-        
-        if (isAdmin()) {
-            adminSection.style.display = 'block';
-        }
-    } else {
-        loginBtn.style.display = 'inline-block';
-        registerBtn.style.display = 'inline-block';
-        logoutBtn.style.display = 'none';
-        adminSection.style.display = 'none';
-    }
-}
-
-// CVE-2023-AAAA: No input validation in API calls
-async function makeAPICall(url, options = {}) {
-    try {
-        const response = await fetch(url, {
-            ...options,
-            headers: {
-                'Content-Type': 'application/json',
-                ...(authToken && { 'Authorization': `Bearer ${authToken}` }),
-                ...options.headers
-            }
-        });
-        
-        const data = await response.json();
-        
-        if (!response.ok) {
-            throw new Error(data.error || 'API call failed');
-        }
-        
-        return data;
-    } catch (error) {
-        console.error('API Error:', error);
-        displayMessage(`エラー: ${error.message}`, 'danger');
-        throw error;
-    }
-}
-
-// Login functionality
-async function login(username, password) {
-    try {
-        const response = await makeAPICall('/api/login', {
-            method: 'POST',
-            body: JSON.stringify({ username, password })
-        });
-        
-        currentUser = response.user;
-        authToken = response.token;
-        saveUserData({ ...response.user, token: response.token });
-        updateAuthUI();
-        
-        displayMessage('ログインに成功しました！', 'success');
-        closeModal('loginModal');
-        loadProducts();
-    } catch (error) {
-        displayMessage('ログインに失敗しました', 'danger');
-    }
-}
-
-// Register functionality
-async function register(username, email, password) {
-    try {
-        await makeAPICall('/api/register', {
-            method: 'POST',
-            body: JSON.stringify({ username, email, password })
-        });
-        
-        displayMessage('登録に成功しました！ログインしてください。', 'success');
-        closeModal('registerModal');
-    } catch (error) {
-        displayMessage('登録に失敗しました', 'danger');
-    }
-}
-
-// Logout functionality
-function logout() {
-    currentUser = null;
-    authToken = null;
-    localStorage.removeItem('user');
-    localStorage.removeItem('token');
-    cart = [];
-    updateAuthUI();
-    displayMessage('ログアウトしました', 'info');
-    loadProducts();
-}
-
-// Load products
-async function loadProducts(searchTerm = '') {
-    try {
-        const url = searchTerm ? `/api/products?search=${encodeURIComponent(searchTerm)}` : '/api/products';
-        const products = await makeAPICall(url);
-        
-        const productsGrid = document.getElementById('productsGrid');
-        productsGrid.innerHTML = '';
-        
-        products.forEach(product => {
-            const productCard = createProductCard(product);
-            productsGrid.appendChild(productCard);
-        });
-    } catch (error) {
-        console.error('Failed to load products:', error);
-    }
-}
-
-// CVE-2023-BBBB: XSS in product display
-function createProductCard(product) {
-    const card = document.createElement('div');
-    card.className = 'product-card';
-    
-    // CRITICAL: No output encoding - XSS vulnerability
-    card.innerHTML = `
-        <h3>${product.name}</h3>
-        <p>${product.description}</p>
-        <div class="product-price">¥${product.price}</div>
-        <div class="product-stock">在庫: ${product.stock}個</div>
-        <button onclick="addToCart(${product.id})" class="btn btn-primary">カートに追加</button>
+  // ---------- global tiny CSS patch (nav をブロックする要素対策) ----------
+  try {
+    const style = document.createElement('style');
+    style.textContent = `
+      #toaster{ pointer-events:none !important; }
+      .modal.hidden,
+      .modal[aria-hidden="true"],
+      .modal:not(.open){ display:none !important; pointer-events:none !important; }
     `;
-    
-    return card;
-}
+    document.head.appendChild(style);
+  } catch {}
 
-// Add to cart
-function addToCart(productId) {
-    if (!isAuthenticated()) {
-        displayMessage('ログインが必要です', 'warning');
-        return;
+  // ---------- small utils ----------
+  const $id  = (id) => document.getElementById(id);
+  const $qs  = (sel) => document.querySelector(sel);
+  const jget = (k, fb=null) => { try { return JSON.parse(localStorage.getItem(k) || 'null') ?? fb; } catch { return fb; } };
+  const jset = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+  const num  = (v, d=0) => (v===null||v===undefined||v==='' ? d : Number(v));
+  const has  = (v) => v !== null && v !== undefined;
+
+  // ---------- toaster (non-blocking) ----------
+  function toast(msg, ms=1300) {
+    let host = $id('toaster');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'toaster';
+      host.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:9999;display:grid;gap:8px;pointer-events:none;';
+      document.body.appendChild(host);
     }
-    
-    const existingItem = cart.find(item => item.productId === productId);
-    if (existingItem) {
-        existingItem.quantity += 1;
+    const el = document.createElement('div');
+    el.textContent = msg;
+    el.style.cssText = 'max-width:90vw;padding:10px 14px;border-radius:10px;border:1px solid #2b3a5a;background:#0f1729;color:#e9edf6;box-shadow:0 6px 24px rgba(0,0,0,.35);font-weight:600;';
+    host.appendChild(el);
+    setTimeout(() => el.remove(), ms);
+  }
+
+  // ---------- modal ----------
+  function openModal(id) {
+    const el = $id(id);
+    if (!el) return;
+    el.classList.remove('hidden');
+    el.classList.add('open');
+    el.setAttribute('aria-hidden','false');
+    document.body.classList.add('modal-open');
+    el.querySelector('input,button,select,textarea')?.focus();
+  }
+  function closeModal(id) {
+    const el = $id(id);
+    if (!el) return;
+    el.classList.remove('open');
+    el.classList.add('hidden');
+    el.setAttribute('aria-hidden','true');
+    document.body.classList.remove('modal-open');
+  }
+  window.openModal = openModal;
+  window.closeModal = closeModal;
+
+  // 背景クリックで閉じる
+  window.addEventListener('click', (e)=>{
+    const m = e.target;
+    if (m?.classList?.contains('modal')) closeModal(m.id);
+  });
+
+  // ---------- auth UI ----------
+  function currentUser(){
+    return jget('user', null);
+  }
+  function loggedIn(){
+    return !!localStorage.getItem('token') && !!currentUser();
+  }
+
+  // display_name が保存されている場合はナビの表示名を差し替え
+  function updateAuthUI() {
+    const isIn  = loggedIn();
+    const user  = currentUser();
+    const loginBtn    = $id('loginBtn');
+    const registerBtn = $id('registerBtn');
+    const logoutBtn   = $id('logoutBtn');
+    const userPill    = $id('navUser');
+    const profileLink = $id('profileLink');
+
+    if (isIn) {
+      loginBtn    && (loginBtn.style.display='none');
+      registerBtn && (registerBtn.style.display='none');
+      logoutBtn   && (logoutBtn.style.display='inline-block');
+
+      // /api/me を軽く叩いて display_name があれば表示（失敗時は従来名）
+      const baseName = user?.username || 'user';
+      (async () => {
+        let label = baseName;
+        try{
+          const r = await fetch('/api/me', { headers:{ Authorization: 'Bearer '+localStorage.getItem('token') }});
+          if (r.ok){
+            const data = await r.json();
+            const dn = data?.profile?.display_name;
+            if (dn && String(dn).trim()) label = String(dn).trim();
+          }
+        }catch{}
+        if (userPill){
+          userPill.textContent = `👤 ${label}`;
+          userPill.hidden = false;
+          userPill.style.display = 'inline-flex';
+        }
+      })();
+
+      profileLink && (profileLink.style.display='inline');
     } else {
-        cart.push({ productId, quantity: 1 });
+      loginBtn    && (loginBtn.style.display='inline-block');
+      registerBtn && (registerBtn.style.display='inline-block');
+      logoutBtn   && (logoutBtn.style.display='none');
+      if (userPill){ userPill.textContent=''; userPill.hidden=true; userPill.style.display='none'; }
+      profileLink && (profileLink.style.display='none');
     }
-    
-    updateCartDisplay();
-    displayMessage('カートに追加しました', 'success');
-}
+    updateCartBadge();
+  }
+  window.updateAuthUI = updateAuthUI;
 
-// Update cart display
-async function updateCartDisplay() {
-    const cartItems = document.getElementById('cartItems');
-    const cartTotal = document.getElementById('cartTotal');
-    
-    if (cart.length === 0) {
-        cartItems.innerHTML = '<p>カートは空です</p>';
-        cartTotal.textContent = '¥0';
-        return;
-    }
-    
-    let total = 0;
-    let cartHTML = '';
-    
-    for (const item of cart) {
-        try {
-            const product = await makeAPICall(`/api/product/${item.productId}`);
-            const itemTotal = product.price * item.quantity;
-            total += itemTotal;
-            
-            // CRITICAL: XSS vulnerability in cart display
-            cartHTML += `
-                <div class="cart-item">
-                    <div>
-                        <h4>${product.name}</h4>
-                        <p>数量: ${item.quantity}</p>
-                    </div>
-                    <div>
-                        <span class="product-price">¥${itemTotal}</span>
-                        <button onclick="removeFromCart(${item.productId})" class="btn btn-danger">削除</button>
-                    </div>
-                </div>
-            `;
-        } catch (error) {
-            console.error('Failed to load product:', error);
-        }
-    }
-    
-    cartItems.innerHTML = cartHTML;
-    cartTotal.textContent = `¥${total.toFixed(2)}`;
-}
+  // ---------- cart storage (user-scoped) ----------
+  const BASE_GUEST = 'cart:guest';
+  function activeCartKey(){
+    const u = currentUser();
+    return u && has(u.id) ? `cart:${u.id}` : BASE_GUEST;
+  }
+  // 互換の 'cart' にもミラーしておく（古いコード対策）
+  function loadCart(){
+    const key = activeCartKey();
+    const arr = jget(key, []);
+    jset('cart', arr);
+    return arr;
+  }
+  function saveCart(arr){
+    const key = activeCartKey();
+    jset(key, arr);
+    jset('cart', arr);
+    updateCartBadge();
+  }
+  function clearActiveCart(){
+    const key = activeCartKey();
+    localStorage.removeItem(key);
+    localStorage.removeItem('cart');
+    updateCartBadge();
+  }
 
-// Remove from cart
-function removeFromCart(productId) {
-    cart = cart.filter(item => item.productId !== productId);
-    updateCartDisplay();
-}
+  function updateCartBadge(){
+    const el = $id('cartCount');
+    if (!el) return;
+    const arr = loadCart();
+    const total = arr.reduce((s,i)=> s + num(i.qty ?? i.quantity, 0), 0);
+    el.textContent = String(total);
+    el.style.display = total>0 ? 'inline-block' : 'none';
+  }
 
-// Checkout
-async function checkout() {
-    if (!isAuthenticated()) {
-        displayMessage('ログインが必要です', 'warning');
-        return;
-    }
-    
-    if (cart.length === 0) {
-        displayMessage('カートが空です', 'warning');
-        return;
-    }
-    
-    try {
-        for (const item of cart) {
-            await makeAPICall('/api/order', {
-                method: 'POST',
-                body: JSON.stringify({
-                    productId: item.productId,
-                    quantity: item.quantity,
-                    userId: currentUser.id
-                })
-            });
-        }
-        
-        cart = [];
-        updateCartDisplay();
-        displayMessage('注文が完了しました！', 'success');
-    } catch (error) {
-        displayMessage('注文に失敗しました', 'danger');
-    }
-}
+  // ---------- add to cart with login gate ----------
+  const pidOf = (it) => num(it?.id ?? it?.productId, NaN);
+  let pendingAdd = null;
 
-// Admin functions
-async function viewUsers() {
-    try {
-        const users = await makeAPICall('/api/admin/users');
-        const adminContent = document.getElementById('adminContent');
-        
-        // CRITICAL: Exposing sensitive user data including passwords
-        let usersHTML = '<h3>ユーザー一覧</h3><table border="1" style="width: 100%; border-collapse: collapse;">';
-        usersHTML += '<tr><th>ID</th><th>ユーザー名</th><th>メール</th><th>パスワード</th><th>ロール</th></tr>';
-        
-        users.forEach(user => {
-            usersHTML += `<tr>
-                <td>${user.id}</td>
-                <td>${user.username}</td>
-                <td>${user.email}</td>
-                <td>${user.password}</td>
-                <td>${user.role}</td>
-            </tr>`;
-        });
-        
-        usersHTML += '</table>';
-        adminContent.innerHTML = usersHTML;
-    } catch (error) {
-        displayMessage('ユーザー一覧の取得に失敗しました', 'danger');
-    }
-}
-
-async function createBackup() {
-    const backupName = prompt('バックアップ名を入力してください:');
-    if (!backupName) return;
-    
-    try {
-        await makeAPICall('/api/backup', {
-            method: 'POST',
-            body: JSON.stringify({ backupName })
-        });
-        displayMessage('バックアップが作成されました', 'success');
-    } catch (error) {
-        displayMessage('バックアップの作成に失敗しました', 'danger');
-    }
-}
-
-async function showDebugInfo() {
-    try {
-        const debugInfo = await makeAPICall('/api/debug');
-        const adminContent = document.getElementById('adminContent');
-        
-        // CRITICAL: Exposing sensitive debug information
-        adminContent.innerHTML = `<pre>${JSON.stringify(debugInfo, null, 2)}</pre>`;
-    } catch (error) {
-        displayMessage('デバッグ情報の取得に失敗しました', 'danger');
-    }
-}
-
-// Vulnerability testing functions
-async function testSQLInjection() {
-    const input = document.getElementById('sqlInjectionInput').value;
-    if (!input) {
-        displayMessage('SQLインジェクションのテスト文字列を入力してください', 'warning');
-        return;
-    }
-    
-    try {
-        const products = await makeAPICall(`/api/products?search=${encodeURIComponent(input)}`);
-        displayMessage(`SQLインジェクションテスト結果: ${products.length}件の商品が見つかりました`, 'info');
-    } catch (error) {
-        displayMessage('SQLインジェクションテストでエラーが発生しました', 'danger');
-    }
-}
-
-function testXSS() {
-    const input = document.getElementById('xssInput').value;
-    if (!input) {
-        displayMessage('XSSのテスト文字列を入力してください', 'warning');
-        return;
-    }
-    
-    // CRITICAL: Direct XSS execution
-    displayMessage(input, 'info');
-}
-
-async function testPathTraversal() {
-    const input = document.getElementById('pathTraversalInput').value;
-    if (!input) {
-        displayMessage('パストラバーサルのテスト文字列を入力してください', 'warning');
-        return;
-    }
-    
-    try {
-        const response = await fetch(`/api/file?filename=${encodeURIComponent(input)}`);
-        if (response.ok) {
-            displayMessage('パストラバーサルテスト: ファイルが見つかりました', 'danger');
-        } else {
-            displayMessage('パストラバーサルテスト: ファイルが見つかりませんでした', 'info');
-        }
-    } catch (error) {
-        displayMessage('パストラバーサルテストでエラーが発生しました', 'danger');
-    }
-}
-
-// Modal functions
-function openModal(modalId) {
-    document.getElementById(modalId).style.display = 'block';
-}
-
-function closeModal(modalId) {
-    document.getElementById(modalId).style.display = 'none';
-}
-
-// Event listeners
-document.addEventListener('DOMContentLoaded', function() {
-    loadUserData();
-    loadProducts();
-    
-    // Modal event listeners
-    document.getElementById('loginBtn').addEventListener('click', () => openModal('loginModal'));
-    document.getElementById('registerBtn').addEventListener('click', () => openModal('registerModal'));
-    document.getElementById('logoutBtn').addEventListener('click', logout);
-    
-    // Close modal on X click
-    document.querySelectorAll('.close').forEach(closeBtn => {
-        closeBtn.addEventListener('click', (e) => {
-            closeModal(e.target.closest('.modal').id);
-        });
-    });
-    
-    // Close modal on outside click
-    window.addEventListener('click', (e) => {
-        if (e.target.classList.contains('modal')) {
-            closeModal(e.target.id);
-        }
-    });
-    
-    // Form submissions
-    document.getElementById('loginForm').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const username = document.getElementById('loginUsername').value;
-        const password = document.getElementById('loginPassword').value;
-        login(username, password);
-    });
-    
-    document.getElementById('registerForm').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const username = document.getElementById('registerUsername').value;
-        const email = document.getElementById('registerEmail').value;
-        const password = document.getElementById('registerPassword').value;
-        register(username, email, password);
-    });
-    
-    // Search functionality
-    document.getElementById('searchBtn').addEventListener('click', () => {
-        const searchTerm = document.getElementById('searchInput').value;
-        loadProducts(searchTerm);
-    });
-    
-    document.getElementById('searchInput').addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            const searchTerm = document.getElementById('searchInput').value;
-            loadProducts(searchTerm);
-        }
-    });
-    
-    // Cart functionality
-    document.getElementById('checkoutBtn').addEventListener('click', checkout);
-    
-    // Admin functionality
-    document.getElementById('viewUsersBtn').addEventListener('click', viewUsers);
-    document.getElementById('backupBtn').addEventListener('click', createBackup);
-    document.getElementById('debugBtn').addEventListener('click', showDebugInfo);
-    
-    // Vulnerability testing
-    document.getElementById('sqlTestBtn').addEventListener('click', testSQLInjection);
-    document.getElementById('xssTestBtn').addEventListener('click', testXSS);
-    document.getElementById('pathTestBtn').addEventListener('click', testPathTraversal);
-    
-    // Navigation
-    document.querySelectorAll('a[href^="#"]').forEach(link => {
-        link.addEventListener('click', (e) => {
-            e.preventDefault();
-            const targetId = link.getAttribute('href').substring(1);
-            const targetElement = document.getElementById(targetId);
-            if (targetElement) {
-                targetElement.scrollIntoView({ behavior: 'smooth' });
+  async function addToCartAny(arg){
+    // 未ログインならログインモーダルを出し、成功後に自動追加
+    if (!loggedIn()){
+      const info = normalizeAddArg(arg);
+      if (!Number.isFinite(info.id)) return;
+      pendingAdd = info;
+      openModal('loginModal');
+      // モーダルが閉じられたらトークン存在を確認
+      const modal = $id('loginModal');
+      if (modal){
+        const obs = new MutationObserver(()=> {
+          const hidden = modal.classList.contains('hidden') || !modal.classList.contains('open');
+          if (hidden) {
+            obs.disconnect();
+            if (loggedIn() && pendingAdd) {
+              addToCartAfterLogin(pendingAdd);
+            } else {
+              toast('ログイン後にもう一度追加してください', 1500);
             }
+            pendingAdd = null;
+          }
         });
-    });
-});
+        obs.observe(modal, { attributes:true, attributeFilter:['class'] });
+      }
+      return;
+    }
 
-// CVE-2023-CCCC: Global function exposure
-window.addToCart = addToCart;
-window.removeFromCart = removeFromCart;
+    // ログイン済み → 通常追加
+    const info = normalizeAddArg(arg);
+    if (!Number.isFinite(info.id)) return;
+    // name/price がなければAPIで補完
+    if (!info.name || !info.price){
+      try{
+        const r = await fetch(`/api/product/${info.id}`);
+        if (r.ok){
+          const p = await r.json();
+          info.name  ||= p.name || (`#${info.id}`);
+          info.price ||= num(p.price, 0);
+        }
+      }catch{}
+    }
+    applyCartAdd(info);
+  }
+
+  function addToCartAfterLogin(info){
+    applyCartAdd(info);
+  }
+
+  function normalizeAddArg(arg){
+    if (typeof arg === 'object' && arg){
+      return {
+        id: num(arg.id ?? arg.productId),
+        name: arg.name || '',
+        price: num(arg.price, 0)
+      };
+    }
+    return { id: num(arg), name: '', price: 0 };
+  }
+
+  function applyCartAdd(info){
+    const cart = loadCart();
+    const idx = cart.findIndex(x => pidOf(x) === info.id);
+    if (idx >= 0){
+      const cur = cart[idx];
+      const q = num(cur.qty ?? cur.quantity, 0) + 1;
+      cart[idx] = {
+        id: info.id, productId: info.id,
+        name: info.name || cur.name || `#${info.id}`,
+        price: num(info.price || cur.price, 0),
+        qty: q, quantity: q
+      };
+    } else {
+      cart.push({
+        id: info.id, productId: info.id,
+        name: info.name || `#${info.id}`,
+        price: num(info.price, 0),
+        qty: 1, quantity: 1
+      });
+    }
+    saveCart(cart);
+    toast('カートに追加しました');
+    try { window.renderCart && window.renderCart(); } catch {}
+  }
+
+  window.addToCart = (id)=>addToCartAny(id);
+  window.addToCartById = (id)=>addToCartAny(id);
+
+  // ボタンクリック委譲（data-* / .add-to-cart 両対応、二重ガード）
+  document.addEventListener('click', (ev) => {
+    // ナビの a タグは完全スルー（ページ遷移を妨げない）
+    if (ev.target.closest('a')) return;
+
+    const btn = ev.target.closest('[data-add],[data-product-id],[data-id],.add-to-cart');
+    if (!btn) return;
+    if (btn.__cartHandling) return;
+    btn.__cartHandling = true;
+
+    const host  = btn.closest('[data-id],[data-product-id]') || btn;
+    const id    = host.dataset.id || host.dataset.productId;
+    const name  = host.dataset.name;
+    const price = host.dataset.price;
+
+    addToCartAny({ id, name, price }).finally(()=> { btn.__cartHandling = false; });
+  });
+
+  // ---------- products page: load & render ----------
+  async function api(url){
+    const r = await fetch(url, { cache:'no-store' });
+    const d = await r.json().catch(()=>({}));
+    if (!r.ok) throw new Error(d.error || r.status);
+    return d;
+  }
+
+  async function loadProducts(search=''){
+    const grid = $id('productsGrid');
+    if (!grid) return;
+    try{
+      const url = search ? `/api/products?search=${encodeURIComponent(search)}` : '/api/products';
+      const list = await api(url);
+      grid.innerHTML = '';
+      list.forEach(p=>{
+        const card = document.createElement('div');
+        card.className = 'product-card';
+        card.dataset.id    = p.id;
+        card.dataset.name  = p.name;
+        card.dataset.price = p.price;
+
+        const img = document.createElement('img');
+        img.className='product-img';
+        img.alt = p.name || 'product';
+        img.src = p.image_path || `https://picsum.photos/seed/p${p.id}/600/380`;
+
+        const h3=document.createElement('h3'); h3.textContent = p.name || '';
+        const ds=document.createElement('p'); ds.textContent = p.description || '';
+        const pr=document.createElement('div'); pr.className='product-price'; pr.textContent = `¥${Number(p.price).toFixed(2)}`;
+        const st=document.createElement('div'); st.className='product-stock'; st.textContent = `在庫: ${p.stock ?? 0}個`;
+
+        const btn=document.createElement('button');
+        btn.className='btn btn-primary add-to-cart';
+        btn.type='button';
+        btn.textContent='カートに追加';
+        btn.dataset.productId = p.id;
+        btn.dataset.name  = p.name || '';
+        btn.dataset.price = p.price ?? 0;
+
+        card.append(img,h3,ds,pr,st,btn);
+        grid.appendChild(card);
+      });
+    }catch(e){
+      console.error(e);
+      // フェイルセーフ、最低限は文字で見せる
+      $id('productsGrid').innerHTML = '<p style="color:#ff8888">商品取得に失敗しました</p>';
+    }
+  }
+  window.loadProducts = loadProducts;
+
+  // 検索UI
+  $id('searchBtn')?.addEventListener('click', ()=>{
+    const term = $id('searchInput')?.value || '';
+    loadProducts(term);
+  });
+  $id('searchInput')?.addEventListener('keypress', (e)=>{
+    if (e.key==='Enter') loadProducts(e.currentTarget.value || '');
+  });
+
+  // ---------- cart.html render ----------
+  async function fetchProduct(id){
+    const r = await fetch(`/api/product/${id}`);
+    if(!r.ok) throw new Error('商品取得に失敗');
+    return r.json();
+  }
+
+  async function renderCart(){
+    const itemsDiv = $id('items') || $id('cartItems'); // cart.html / index.html 互換
+    const totalEl  = $id('total') || $id('cartTotal');
+    if (!itemsDiv || !totalEl) return;
+
+    const cart = loadCart();
+    if(cart.length===0){
+      itemsDiv.innerHTML = '<p>カートは空です</p>';
+      totalEl.textContent = '¥0';
+      return;
+    }
+
+    let total = 0;
+    let html  = '';
+
+    for(const it of cart){
+      try{
+        const pid = pidOf(it);
+        const p = await fetchProduct(pid);
+        const qty = num(it.qty ?? it.quantity, 0);
+        const price = num(p.price ?? it.price, 0);
+        const t = price * qty;
+        total  += t;
+
+        html += `
+          <div class="cart-item">
+            <div>
+              <h4>${p.name}</h4>
+              <p>数量: ${qty}</p>
+            </div>
+            <div>
+              <span class="product-price">¥${t.toFixed(2)}</span>
+              <button class="btn btn-danger" onclick="rmItem(${pid})">削除</button>
+            </div>
+          </div>`;
+      }catch(e){
+        console.error(e);
+      }
+    }
+
+    itemsDiv.innerHTML  = html || '<p>カートの読み込みに失敗しました</p>';
+    totalEl.textContent = '¥' + total.toFixed(2);
+  }
+  window.renderCart = renderCart;
+
+  function rmItem(id){
+    const next = loadCart().filter(i => pidOf(i) !== Number(id));
+    saveCart(next);
+    renderCart();
+  }
+  window.rmItem = rmItem;
+
+  // ---------- wire top buttons if present ----------
+  $id('loginBtn')?.addEventListener('click', ()=> openModal('loginModal'));
+  $id('registerBtn')?.addEventListener('click', ()=> openModal('registerModal'));
+  $id('logoutBtn')?.addEventListener('click', ()=>{
+    // ログアウト時：そのユーザーのカートをクリアし、ゲストに切り替わる
+    clearActiveCart();
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    updateAuthUI();
+    toast('ログアウトしました');
+    try { if (!location.pathname.endsWith('/index.html')) location.href = './index.html'; } catch {}
+  });
+
+  // ---------- boot ----------
+  document.addEventListener('DOMContentLoaded', ()=>{
+    updateAuthUI();
+    // products.html のときだけ描画される（grid が無いページでは何もしない）
+    if ($id('productsGrid')) loadProducts('');
+    // cart ページなら描画
+    if ($id('items') || $id('cartItems')) renderCart();
+  });
+})();

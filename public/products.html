@@ -1,61 +1,87 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>商品一覧 - Vulnerable Shop</title>
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="styles.css"/>
+
+  <style>
+    .user-pill{display:none;margin-left:10px;padding:6px 10px;border-radius:999px;
+      background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);font-weight:600}
+    .cart-badge{display:none;margin-left:6px;min-width:18px;height:18px;padding:0 6px;border-radius:9px;
+      background:#2d7ef7;color:#fff;font-size:12px;line-height:18px;text-align:center}
+
+    /* クリック貫通の安全パッチ（script.js でも注入するが保険で重ねておく） */
+    #toaster{ pointer-events:none !important; }
+    .modal.hidden,.modal[aria-hidden="true"],.modal:not(.open){
+      display:none !important; pointer-events:none !important;
+    }
+  </style>
 </head>
 <body>
-  <header class="navbar">
-    <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
-    <div class="nav-links">
-      <a href="/">ホーム</a>
-      <a href="/products.html">商品</a>
-      <a href="/cart.html">カート</a>
-      <a href="/checkout.html">決済</a>
-    </div>
+  <header>
+    <nav class="navbar">
+      <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
+      <div class="nav-links">
+        <a href="./index.html">ホーム</a>
+        <a href="./products.html" aria-current="page" style="font-weight:700;">商品</a>
+        <a href="./cart.html">カート <span id="cartCount" class="cart-badge">0</span></a>
+        <a href="./java-vuln.html" style="color:#ffd700;font-weight:bold;">Java脆弱性デモ</a>
+        <div class="auth-buttons">
+          <button id="loginBtn" class="btn btn-primary">ログイン</button>
+          <button id="registerBtn" class="btn btn-secondary">新規登録</button>
+          <button id="logoutBtn" class="btn btn-danger" style="display:none;">ログアウト</button>
+          <span id="navUser" class="user-pill" hidden></span>
+        </div>
+      </div>
+    </nav>
   </header>
-  <main class="products-section">
-    <h2>商品一覧</h2>
-    <div class="search-container" style="margin-bottom:1.5rem;">
-      <input class="search-input" id="q" placeholder="商品検索 (XSS/SQLi学習用)">
-      <button class="btn btn-primary" id="go">検索</button>
-    </div>
-    <div id="grid" class="products-grid"></div>
+
+  <main>
+    <section class="hero">
+      <div class="hero-content">
+        <h2>商品一覧</h2>
+        <p>検索で絞り込めます</p>
+        <div class="search-container">
+          <input type="text" id="searchInput" placeholder="商品を検索..." class="search-input">
+          <button id="searchBtn" class="btn btn-primary">検索</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="products" class="products-section">
+      <div id="productsGrid" class="products-grid"></div>
+    </section>
   </main>
-  <script>
-    const grid = document.getElementById('grid');
-    async function load(search=''){
-      const res = await fetch('/api/products'+(search?`?search=${encodeURIComponent(search)}`:''));
-      const list = await res.json();
-      grid.innerHTML = '';
-      list.forEach(p=>{
-        const el = document.createElement('div'); el.className='product-card';
-        el.innerHTML = `
-          <img src="${p.image_path||''}" alt="${p.name}" style="width:100%;border-radius:8px;margin-bottom:10px;">
-          <h3>${p.name}</h3>
-          <p>${p.description||''}</p>
-          <div class="product-price">¥${p.price}</div>
-          <div class="product-stock">在庫: ${p.stock}</div>
-          <button class="btn btn-primary" onclick="add(${p.id})">カートに追加</button>
-        `;
-        grid.appendChild(el);
-      })
-    }
-    function add(id){
-      const cart = JSON.parse(localStorage.getItem('cart')||'[]');
-      const found = cart.find(i=>i.productId===id);
-      if(found) found.quantity++; else cart.push({productId:id, quantity:1});
-      localStorage.setItem('cart', JSON.stringify(cart));
-      alert('カートに追加しました');
-    }
-    document.getElementById('go').onclick = ()=>load(document.getElementById('q').value);
-    // Redirect to login if not logged in, but still allows browsing if cancelled
-    try{ const u = JSON.parse(localStorage.getItem('user')||'null'); if(!u){ if(confirm('ログインしますか？')) location.href='/login.html'; } }catch(e){}
-    load();
-    window.add = add;
-  </script>
+
+  <!-- auth モーダル（このページにも置く：未ログイン時に即出せる） -->
+  <div id="registerModal" class="modal hidden" aria-hidden="true">
+    <div class="modal-content" tabindex="-1">
+      <button type="button" id="registerClose" class="modal-close" aria-label="閉じる">×</button>
+      <h3>新規登録</h3>
+      <form id="registerForm">
+        <input id="regUsername"  type="text"     placeholder="ユーザー名" required>
+        <input id="regEmail"     type="email"    placeholder="メール（任意）">
+        <input id="regPassword"  type="password" placeholder="パスワード" required>
+        <button id="registerSubmit" type="submit" class="btn btn-primary">登録</button>
+      </form>
+    </div>
+  </div>
+  <div id="loginModal" class="modal hidden" aria-hidden="true">
+    <div class="modal-content" tabindex="-1">
+      <button type="button" id="loginClose" class="modal-close" aria-label="閉じる">×</button>
+      <h3>ログイン</h3>
+      <form id="loginForm">
+        <input id="loginUsername" type="text"     placeholder="ユーザー名" required>
+        <input id="loginPassword" type="password" placeholder="パスワード" required>
+        <button id="loginSubmit" type="submit" class="btn btn-primary">ログイン</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 読み込み順：共通 → auth -->
+  <script src="script.js"></script>
+  <script src="js/auth.js" defer></script>
 </body>
 </html>
-

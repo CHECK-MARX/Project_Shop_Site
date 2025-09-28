@@ -1,8 +1,14 @@
 // public/js/auth.js
 (() => {
-  const $ = (s) => document.querySelector(s);
+  // 二重読込ガード
+  if (window.__AUTH_WIRED__) return;
+  window.__AUTH_WIRED__ = true;
 
-  // --- 互換: もし昔の偽トークンが残っていたら破棄 ---
+  const $  = (s) => document.querySelector(s);
+  const $id= (id)=> document.getElementById(id);
+  const on = (el,ev,fn)=> el && el.addEventListener(ev,fn);
+
+  // 旧ダミートークンの掃除
   try {
     if (localStorage.getItem('token') === 'root-admin-token') {
       localStorage.removeItem('token');
@@ -10,55 +16,104 @@
     }
   } catch {}
 
+  // ---- モーダル：フォールバック定義（無ければ用意）----
+  if (typeof window.openModal !== 'function') {
+    window.openModal = function(id){
+      const el = $id(id); if(!el) return;
+      el.classList.remove('hidden'); el.classList.add('open');
+      el.setAttribute('aria-hidden','false');
+      document.body.classList.add('modal-open');
+      // フォーカス
+      (el.querySelector('input,button,select,textarea')||{}).focus?.();
+    };
+  }
+  if (typeof window.closeModal !== 'function') {
+    window.closeModal = function(id){
+      const el = $id(id); if(!el) return;
+      el.classList.remove('open'); el.classList.add('hidden');
+      el.setAttribute('aria-hidden','true');
+      document.body.classList.remove('modal-open');
+    };
+  }
+  const closeModalSafe = (id)=>{ try{ window.closeModal(id); }catch{} };
+  const uiUpdateSafe   = ()=>{ try{ typeof window.updateAuthUI==='function' && window.updateAuthUI(); }catch{} };
+
+  // ---- ボタン配線（必ず動くように）----
+  document.addEventListener('DOMContentLoaded', () => {
+    on($id('loginBtn'),    'click', ()=> window.openModal('loginModal'));
+    on($id('registerBtn'), 'click', ()=> window.openModal('registerModal'));
+    on($id('logoutBtn'),   'click', () => {
+      // ログアウト：トークン等クリア
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      uiUpdateSafe();
+      alert('ログアウトしました');
+      // 可能ならホームへ
+      try { if (!location.pathname.endsWith('/index.html')) location.href = './index.html'; } catch {}
+    });
+
+    // ×ボタン
+    on($id('loginClose'),    'click', ()=> closeModalSafe('loginModal'));
+    on($id('registerClose'), 'click', ()=> closeModalSafe('registerModal'));
+
+    // 背景クリックで閉じる
+    window.addEventListener('click', (e)=>{
+      const m = e.target;
+      if (m?.classList?.contains('modal')) closeModalSafe(m.id);
+    });
+  });
+
+  // ---- API util ----
+  async function postJSON(url, body){
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body||{})
+    });
+    const data = await r.json().catch(()=> ({}));
+    if (!r.ok) throw new Error(data.error || `${r.status} ${r.statusText}`);
+    return data;
+  }
+
   // ---- 新規登録 ----
-  $('#registerForm')?.addEventListener('submit', async (e) => {
+  on($('#registerForm'), 'submit', async (e) => {
     e.preventDefault();
     const username = $('#regUsername')?.value?.trim();
     const email    = $('#regEmail')?.value?.trim() || '';
     const password = $('#regPassword')?.value || '';
-    if (!username || !password) return alert('ユーザー名とパスワードを入力してください');
+    if (!username || !password) { alert('ユーザー名とパスワードを入力してください'); return; }
 
     try {
-      const r = await fetch('/api/register', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ username, email, password })
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || '登録に失敗しました');
+      const data = await postJSON('/api/register', { username, email, password });
       alert(`登録OK: userId=${data.userId}`);
-      window.closeModal?.('registerModal');
+      closeModalSafe('registerModal');
+      // 直後にログインモーダルを開く（任意）
+      setTimeout(()=>{ try{ window.openModal('loginModal'); }catch{} }, 60);
     } catch (err) {
       console.error(err);
       alert('登録エラー: ' + err.message);
     }
   });
 
-  // ---- ログイン（必ずサーバに投げて本物のJWTを取得）----
-  $('#loginForm')?.addEventListener('submit', async (e) => {
+  // ---- ログイン ----
+  on($('#loginForm'), 'submit', async (e) => {
     e.preventDefault();
     const username = $('#loginUsername')?.value?.trim();
     const password = $('#loginPassword')?.value || '';
-    if (!username || !password) return alert('ユーザー名とパスワードを入力してください');
+    if (!username || !password) { alert('ユーザー名とパスワードを入力してください'); return; }
 
     try {
-      const r = await fetch('/api/login', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ username, password })
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || 'ログインに失敗しました');
+      const data = await postJSON('/api/login', { username, password });
 
-      // 本物のトークンを保存
+      // 保存
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
 
       alert(`ログインOK: ${data.user?.username || username}`);
-      window.closeModal?.('loginModal');
-      if (typeof window.updateAuthUI === 'function') window.updateAuthUI();
+      closeModalSafe('loginModal');
+      uiUpdateSafe();
 
-      // 管理者なら admin.html に遷移（root/root もサーバ側で admin 扱い）
+      // 管理者なら管理画面へ
       if (data.user?.role === 'admin') {
         location.href = './admin.html';
       }
@@ -68,5 +123,5 @@
     }
   });
 
-  console.log('auth.js loaded');
+  console.log('auth.js wired');
 })();
