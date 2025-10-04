@@ -6,75 +6,72 @@
   <title>カート - Vulnerable Shop</title>
   <link rel="stylesheet" href="./styles.css"/>
 
-  <!-- ユーザー名ピル（各ページで見えるよう最小スタイル） -->
   <style>
-    .user-pill{display:none;margin-left:10px;padding:6px 10px;border-radius:999px;
-      background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);
-      font-weight:600;letter-spacing:.02em}
-  </style>
-
-  <!-- モーダルの見た目（共通） -->
-  <style id="modal-fix">
-    .modal{position:fixed;inset:0;display:grid;place-items:center;padding:24px;z-index:1000}
-    .modal::before{content:"";position:absolute;inset:0;background:rgba(5,10,20,.64);backdrop-filter:blur(3px)}
-    .modal.hidden{display:none}.modal.open{display:grid}
-    .modal-content{position:relative;z-index:1;width:clamp(320px,90vw,420px);padding:18px;border-radius:14px;border:1px solid #27334d;background:linear-gradient(180deg,rgba(29,37,61,.96),rgba(18,24,42,.96));box-shadow:0 12px 30px rgba(0,0,0,.45),0 0 0 1px rgba(255,255,255,.02) inset;color:#e9edf6;display:flex;gap:12px}
-    .modal-content h3{margin:0 0 4px;font-size:16px;font-weight:700;letter-spacing:.02em}
-    #registerForm,#loginForm{display:grid;gap:10px}
-    .modal-content input{width:100%;height:40px;padding:10px 12px;border-radius:10px;border:1px solid #2c3a59;background:#101829;color:#e9edf6;outline:none;transition:border-color .15s,box-shadow .15s}
-    .modal-content input:focus{border-color:#2d7ef7;box-shadow:0 0 0 3px rgba(45,126,247,.25)}
-    .modal-content ::placeholder{color:#99a6bf}
-    .modal-content .btn{width:100%;height:40px;border-radius:10px;font-weight:600;letter-spacing:.02em}
-    .modal-content .btn.btn-primary{background:linear-gradient(180deg,#2d7ef7,#1f5ed6);border:0}
-    .modal-content .btn.btn-primary:hover{filter:brightness(1.05)}
-    .modal-content .btn.btn-primary:active{transform:translateY(1px)}
-    .modal-close{position:absolute;top:10px;right:10px;width:28px;height:28px;display:grid;place-items:center;font-size:18px;line-height:1;border-radius:8px;border:1px solid #2b374f;background:#0f1729;color:#cdd7ea;cursor:pointer;transition:background .15s,transform .05s}
-    .modal-close:hover{background:#19223b}.modal-close:active{transform:scale(.98)}
-    body.modal-open{overflow:hidden}
+    /* このページ用の最小レイアウトだけ（モーダル等は styles.css の共通版を使用） */
+    .cart-wrap{max-width:1100px;margin:0 auto;padding:24px}
+    .sum-box{margin-top:18px;padding:20px;border-radius:12px;background:#0e1424;border:1px solid #27334d}
+    .sum-row{display:flex;justify-content:space-between;align-items:center;gap:16px}
+    .sum-ttl{font-size:20px;font-weight:800}
+    .cart-section h2{margin:8px 0 16px}
+    .cart-item{background:#0d1321;border:1px solid #27334d;border-radius:12px;padding:16px;margin-bottom:12px;
+               display:flex;justify-content:space-between;align-items:center;gap:12px}
+    .cart-item h4{margin:0}
+    .cart-item .unit{opacity:.85;margin-left:8px}
+    .btn-sm{height:36px;padding:0 12px;border-radius:10px;font-weight:700}
+    .btn-ghost{background:#2a3148;color:#e9edf6;border:0}
+    .btn-add{background:#2d7ef7;color:#fff;border:0}
+    .btn-del{background:#e74c3c;color:#fff;border:0}
+    /* ナビの個数バッジ（共通と同等の最小保険） */
+    .cart-badge{display:none;margin-left:6px;min-width:18px;height:18px;padding:0 6px;border-radius:9px;
+      background:#2d7ef7;color:#fff;font-size:12px;line-height:18px;text-align:center;vertical-align:middle}
   </style>
 </head>
 <body>
   <header>
-    <nav class="navbar">
+    <nav class="navbar" role="navigation" aria-label="メイン">
       <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
       <div class="nav-links">
         <a href="./index.html">ホーム</a>
         <a href="./products.html">商品</a>
-        <a href="./cart.html" aria-current="page" style="font-weight:700;">カート</a>
+        <a href="./cart.html" aria-current="page" style="font-weight:700;">
+          カート <span id="cartCount" class="cart-badge">0</span>
+        </a>
         <a href="./java-vuln.html" style="color:#ffd700;font-weight:bold;">Java脆弱性デモ</a>
-
         <div class="auth-buttons">
-          <button id="loginBtn" class="btn btn-primary">ログイン</button>
-          <button id="registerBtn" class="btn btn-secondary">新規登録</button>
-          <button id="logoutBtn" class="btn btn-danger" style="display:none;">ログアウト</button>
+          <button id="loginBtn" class="btn btn-primary" type="button">ログイン</button>
+          <button id="registerBtn" class="btn btn-secondary" type="button">新規登録</button>
+          <button id="logoutBtn" class="btn btn-danger" type="button" style="display:none;">ログアウト</button>
+          <span id="navUser" class="user-pill" hidden></span>
         </div>
-
-        <!-- ★ ログインユーザー名表示 -->
-        <span id="navUser" class="user-pill" hidden></span>
       </div>
     </nav>
   </header>
 
-  <main class="cart-section">
-    <h2>ショッピングカート</h2>
+  <main class="cart-wrap">
+    <section class="cart-section">
+      <h2>ショッピングカート</h2>
 
-    <div id="items" class="cart-items"><!-- ここに項目を描画 --></div>
+      <!-- script.js の renderCart() がここへ項目を描画 -->
+      <div id="items" class="cart-items"></div>
 
-    <div class="cart-total" style="margin-top:18px;">
-      <h3>合計: <span id="total">¥0</span></h3>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">
-        <a class="btn btn-secondary" href="./products.html">商品一覧へ</a>
-        <a class="btn btn-success"   href="./checkout.html">チェックアウトへ</a>
+      <div class="sum-box" aria-live="polite">
+        <div class="sum-row">
+          <div class="sum-ttl">合計: <span id="total">¥0</span></div>
+          <div class="sum-actions" style="display:flex;gap:10px;">
+            <a href="./products.html" class="btn btn-secondary" id="toProducts">商品一覧へ</a>
+            <a href="./checkout.html" class="btn btn-success" id="toCheckout">チェックアウト</a>
+          </div>
+        </div>
       </div>
-    </div>
+    </section>
   </main>
 
-  <!-- auth モーダル -->
-  <div id="registerModal" class="modal hidden" aria-hidden="true">
-    <div class="modal-content">
+  <!-- ===== 共通 auth モーダル（styles.css の共通スタイルに合わせる） ===== -->
+  <div id="registerModal" class="modal hidden" aria-hidden="true" aria-modal="true" role="dialog">
+    <div class="modal-content" tabindex="-1">
       <button type="button" id="registerClose" class="modal-close" aria-label="閉じる">×</button>
       <h3>新規登録</h3>
-      <form id="registerForm">
+      <form id="registerForm" autocomplete="off">
         <input id="regUsername"  type="text"     placeholder="ユーザー名" required>
         <input id="regEmail"     type="email"    placeholder="メール（任意）">
         <input id="regPassword"  type="password" placeholder="パスワード" required>
@@ -82,90 +79,22 @@
       </form>
     </div>
   </div>
-  <div id="loginModal" class="modal hidden" aria-hidden="true">
-    <div class="modal-content">
+
+  <div id="loginModal" class="modal hidden" aria-hidden="true" aria-modal="true" role="dialog">
+    <div class="modal-content" tabindex="-1">
       <button type="button" id="loginClose" class="modal-close" aria-label="閉じる">×</button>
       <h3>ログイン</h3>
-      <form id="loginForm">
+      <form id="loginForm" autocomplete="off">
         <input id="loginUsername" type="text"     placeholder="ユーザー名" required>
         <input id="loginPassword" type="password" placeholder="パスワード" required>
         <button id="loginSubmit" type="submit" class="btn btn-primary">ログイン</button>
       </form>
     </div>
   </div>
+  <!-- ===== /auth モーダル ===== -->
 
-  <!-- 共通スクリプト（順番厳守） -->
+  <!-- 共通スクリプト（ページ固有のインラインJSは使わない） -->
   <script src="./script.js"></script>
   <script src="./js/auth.js" defer></script>
-
-  <!-- カート描画だけこのページ固有で持つ（localStorage を使用） -->
-  <script>
-    async function fetchProduct(id){
-      const r = await fetch(`/api/product/${id}`);
-      if(!r.ok) throw new Error('商品取得に失敗');
-      return r.json();
-    }
-
-    function getCart(){
-      try{ return JSON.parse(localStorage.getItem('cart')||'[]'); }
-      catch{ return []; }
-    }
-    function setCart(arr){
-      localStorage.setItem('cart', JSON.stringify(arr));
-    }
-
-    async function renderCart(){
-      const itemsDiv = document.getElementById('items');
-      const totalEl  = document.getElementById('total');
-      const cart     = getCart();
-
-      if(cart.length===0){
-        itemsDiv.innerHTML = '<p>カートは空です</p>';
-        totalEl.textContent = '¥0';
-        return;
-      }
-
-      let total = 0;
-      let html  = '';
-
-      // 逐次で OK（教材用）。速度気になるなら Promise.all で並列化
-      for(const it of cart){
-        try{
-          const p = await fetchProduct(it.productId);
-          const t = p.price * it.quantity;
-          total  += t;
-
-          html += `
-            <div class="cart-item">
-              <div>
-                <h4>${p.name}</h4>
-                <p>数量: ${it.quantity}</p>
-              </div>
-              <div>
-                <span class="product-price">¥${t}</span>
-                <button class="btn btn-danger" onclick="rmItem(${it.productId})">削除</button>
-              </div>
-            </div>`;
-        }catch(e){
-          console.error(e);
-        }
-      }
-
-      itemsDiv.innerHTML    = html || '<p>カートの読み込みに失敗しました</p>';
-      totalEl.textContent   = '¥' + total.toFixed(2);
-    }
-
-    function rmItem(id){
-      const next = getCart().filter(i => i.productId !== id);
-      setCart(next);
-      renderCart();
-    }
-
-    // グローバル公開（ボタン onclick 用）
-    window.rmItem = rmItem;
-
-    // 初期描画
-    renderCart();
-  </script>
 </body>
 </html>

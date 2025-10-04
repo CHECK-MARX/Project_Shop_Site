@@ -1,46 +1,57 @@
-// server.js — バックアップ一覧/復元/削除つき（dotenvは任意）
-try { require('dotenv').config(); } catch {}
+// server.js — admin/root を起動時に必ず上書き確保（admin=admin123 / root=root）版（バックアップAPI統一）
+
+let ENV_LOADED = false;
+try { require('dotenv').config(); ENV_LOADED = true; } catch {}
 
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
-const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
-const cors = require('cors');
-const bodyParser = require('body-parser');
-const cookieParser = require('cookie-parser');
-const session = require('express-session');
-const path = require('path');
-const fs = require('fs');
-const { exec } = require('child_process');
+const bcrypt  = require('bcrypt');
+const jwt     = require('jsonwebtoken');
+const cors    = require('cors');
+const path    = require('path');
+const fs      = require('fs');               // ← 追加
+const fsp     = fs.promises;                 // ← 追加（以降これを使用）
 
-const app = express();
+const app  = express();
 const PORT = process.env.PORT || 3000;
-
-// ===== ENV =====
-const JWT_KEY        = process.env.JWT_SECRET || 'weak-jwt-secret';
-const DEV_ROOT       = String(process.env.ENABLE_DEV_ROOT || 'false').toLowerCase() === 'true';
+const JWT_KEY = process.env.JWT_SECRET || 'weak-jwt-secret';
+const DEV_ROOT = String(process.env.ENABLE_DEV_ROOT || '').toLowerCase() === 'true';
 const DEV_ROOT_EMAIL = process.env.ADMIN_DEFAULT_EMAIL || 'root@local';
 
-// ===== middlewares =====
 app.use(cors({ origin: '*', credentials: true }));
-app.use(session({
-  secret: 'weak-secret-key',
-  resave: false,
-  saveUninitialized: true,
-  cookie: { secure: false, httpOnly: false, maxAge: 24*60*60*1000 }
-}));
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(cookieParser());
-app.use(express.static('public'));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'public')));
 
-const BACKUP_DIR = path.join(__dirname, 'backups');
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
-fs.mkdirSync(BACKUP_DIR, { recursive: true });
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+const db = new sqlite3.Database(path.join(__dirname, 'shopping.db'));
 
-// ===== DB =====
-const db = new sqlite3.Database('shopping.db');
+// --- 起動時に admin/root を「必ず」上書きする
+function ensureAdminBootstrap() {
+  // admin をUPSERT → 必ず role=admin, password=admin123 に強制
+  db.run(`INSERT OR IGNORE INTO users (username,email,password,role)
+          VALUES ('admin','admin@shop.com','admin123','admin')`);
+  db.run(`UPDATE users SET role='admin' WHERE username='admin' AND role <> 'admin'`);
+  db.run(`UPDATE users SET password='admin123' WHERE username='admin'`); // ★常に上書き
+
+  if (DEV_ROOT) {
+    // root もUPSERT → 必ず role=admin, password=root に強制
+    db.run(`INSERT OR IGNORE INTO users (username,email,password,role)
+            VALUES ('root', ?, 'root', 'admin')`, [DEV_ROOT_EMAIL]);
+    db.run(`UPDATE users SET role='admin', email=? WHERE username='root'`, [DEV_ROOT_EMAIL]);
+    db.run(`UPDATE users SET password='root' WHERE username='root'`); // ★常に上書き
+    console.log('[BOOT] DEV_ROOT=true により root/root (admin) を確保しました');
+  }
+
+  // 確認用ログ（任意）
+  db.get(`SELECT username,role,password FROM users WHERE username='admin'`, (_, r) => {
+    if (r) console.log(`[BOOT] admin: role=${r.role} / pass="${r.password}"`);
+  });
+  if (DEV_ROOT) {
+    db.get(`SELECT username,role,password FROM users WHERE username='root'`, (_, r) => {
+      if (r) console.log(`[BOOT] root : role=${r.role} / pass="${r.password}"`);
+    });
+  }
+}
 
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS users (
@@ -51,310 +62,255 @@ db.serialize(() => {
     role TEXT DEFAULT 'user',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
-
-  db.run(`CREATE TABLE IF NOT EXISTS user_profiles (
-    user_id INTEGER UNIQUE,
-    display_name TEXT, full_name TEXT, phone TEXT, birthday TEXT, website TEXT, bio TEXT, avatar_url TEXT,
-    address1 TEXT, address2 TEXT, city TEXT, state TEXT, zip TEXT, country TEXT, language TEXT, timezone TEXT,
-    newsletter INTEGER DEFAULT 0, twitter TEXT,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id)
-  )`);
-
   db.run(`CREATE TABLE IF NOT EXISTS products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT, description TEXT, price REAL, image_path TEXT, stock INTEGER,
+    name TEXT,
+    description TEXT,
+    price REAL,
+    image_path TEXT,
+    stock INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 
-  db.run(`CREATE TABLE IF NOT EXISTS orders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER, product_id INTEGER, quantity INTEGER, total_price REAL,
-    status TEXT DEFAULT 'pending',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users (id),
-    FOREIGN KEY (product_id) REFERENCES products (id)
-  )`);
+  // デモ商品（1行ずつINSERT）
+  db.run(`INSERT OR IGNORE INTO products
+          (id,name,description,price,stock,image_path)
+          VALUES (1,'Laptop','High-performance laptop',999,10,'https://picsum.photos/seed/laptop/800/500')`);
+  db.run(`INSERT OR IGNORE INTO products
+          (id,name,description,price,stock,image_path)
+          VALUES (2,'Smartphone','Latest smartphone model',700,25,'https://picsum.photos/seed/phone/800/500')`);
+  db.run(`INSERT OR IGNORE INTO products
+          (id,name,description,price,stock,image_path)
+          VALUES (3,'Headphones','Wireless noise-cancelling headphones',200,50,'https://picsum.photos/seed/headphones/800/500')`);
+  db.run(`INSERT OR IGNORE INTO products
+          (id,name,description,price,stock,image_path)
+          VALUES (4,'Anime Hero','<img src=x onerror=alert(1)>',60,100,'https://picsum.photos/seed/hero/800/500')`);
 
-  // demo users (plain)
-  db.run(`INSERT OR IGNORE INTO users (username,email,password,role) VALUES
-    ('admin','admin@shop.com','admin123','admin'),
-    ('user1','user1@shop.com','password123','user')`);
-
-  if (DEV_ROOT) {
-    db.run(`INSERT OR IGNORE INTO users (username,email,password,role) VALUES ('root',?, 'root','admin')`, [DEV_ROOT_EMAIL]);
-    db.run(`UPDATE users SET role='admin', password='root', email=? WHERE username='root'`, [DEV_ROOT_EMAIL]);
-    console.log('[DEV] ensured root/admin user');
-  }
-
-  // demo products
-  db.run(`INSERT OR IGNORE INTO products (name,description,price,stock,image_path) VALUES
-    ('Laptop','High-performance laptop',999.99,10,'https://picsum.photos/seed/laptop/800/500'),
-    ('Smartphone','Latest smartphone model',699.99,25,'https://picsum.photos/seed/phone/800/500'),
-    ('Headphones','Wireless noise-cancelling headphones',199.99,50,'https://picsum.photos/seed/headphones/800/500'),
-    ('Anime Hero','<img src=x onerror=alert(1)>',59.99,100,'https://picsum.photos/seed/hero/800/500'),
-    ('Cat Character','キュートなキャラクター画像',39.99,80,'https://picsum.photos/seed/cat/800/500')`);
-  for (let i=1;i<=20;i++){
-    db.run(`INSERT OR IGNORE INTO products (name,description,price,stock,image_path)
-            VALUES ('Cute Cat ${i}','かわいいキャラクター${String(i).padStart(2,'0')}',19.99,100,
-            'https://picsum.photos/seed/cute${String(i).padStart(2,'0')}/800/500')`);
-  }
+  ensureAdminBootstrap();
 });
 
-// ===== utils =====
+// --- 共通ユーティリティ
 const esc = s => String(s ?? '')
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
   .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-
-const signToken   = p => jwt.sign(p, JWT_KEY, { expiresIn: '24h' });
-const verifyToken = t => jwt.verify(t, JWT_KEY);
+const sign = p => jwt.sign(p, JWT_KEY, { expiresIn: '24h' });
 
 function requireAuth(req,res,next){
-  const token = req.headers.authorization?.replace('Bearer ','');
-  if (!token) return res.status(401).json({ error:'No token provided' });
-  try { req.user = verifyToken(token); next(); }
-  catch { return res.status(401).json({ error:'Invalid token' }); }
+  const t = (req.headers.authorization||'').replace(/^Bearer\s+/i,'').trim();
+  if(!t) return res.status(401).json({error:'No token'});
+  try { req.user = jwt.verify(t, JWT_KEY); next(); }
+  catch { return res.status(401).json({error:'Invalid token'}); }
 }
 function requireAdmin(req,res,next){
-  requireAuth(req,res,()=> req.user.role==='admin' ? next() : res.status(403).json({ error:'Access denied'}));
+  requireAuth(req,res,()=> (req.user?.role==='admin') ? next() : res.status(403).json({error:'forbidden'}));
 }
 
-// ===== auth =====
+// --- 認証
 app.post('/api/login', (req,res)=>{
-  const { username, password } = req.body || {};
+  const { username='', password='' } = req.body||{};
+  const uname = String(username).trim();
+  const pass  = String(password);
 
-  if (DEV_ROOT && username==='root' && password==='root'){
-    db.get(`SELECT * FROM users WHERE username='root'`, (e,u)=>{
-      if (e) return res.status(500).json({ error:'Database error' });
-      const reply=(id,role='admin')=>res.json({ token:signToken({userId:id,role}), user:{id,username:'root',role}});
-      if (u) return reply(u.id, u.role||'admin');
-      db.run(`INSERT INTO users (username,email,password,role) VALUES ('root',?,'root','admin')`,
-        [DEV_ROOT_EMAIL], function(err){ if (err) return res.status(500).json({error:'Database error'}); reply(this.lastID,'admin'); });
-    });
-    return;
-  }
+  if(!uname || !pass) return res.status(400).json({error:'Bad request'});
 
-  const q1 = `SELECT * FROM users WHERE username='${username}' AND password='${password}'`;
-  db.get(q1, (err,user)=>{
-    if (err) return res.status(500).json({ error:'Database error' });
-    if (user) return res.json({ token:signToken({userId:user.id,role:user.role}), user:{id:user.id,username:user.username,role:user.role} });
+  db.get(`SELECT * FROM users WHERE username=?`, [uname], (err,u)=>{
+    if(err) return res.status(500).json({error:'DB error'});
+    if(!u)  return res.status(401).json({error:'Invalid credentials'});
 
-    const q2 = `SELECT * FROM users WHERE username='${username}'`;
-    db.get(q2, (e2,u2)=>{
-      if (e2) return res.status(500).json({ error:'Database error' });
-      if (u2 && typeof u2.password==='string' && u2.password.length>20){
-        try{
-          if (bcrypt.compareSync(password, u2.password)){
-            return res.json({ token:signToken({userId:u2.id,role:u2.role}), user:{id:u2.id,username:u2.username,role:u2.role} });
-          }
-        }catch{}
-      }
-      return res.status(401).json({ error:'Invalid credentials' });
-    });
+    let ok = false;
+    if (u.password && u.password.length > 20) { // 旧ハッシュ互換
+      try { ok = bcrypt.compareSync(pass, u.password); } catch {}
+    } else {
+      ok = (u.password === pass);
+    }
+    if(!ok) return res.status(401).json({error:'Invalid credentials'});
+
+    const token = sign({ userId:u.id, role:u.role });
+    res.json({ token, user: { id:u.id, username:u.username, role:u.role } });
   });
 });
 
 app.post('/api/register', (req,res)=>{
-  const { username, email, password } = req.body || {};
-  const uname=(username||'').trim(), mail=(email||'').trim();
-  if (!uname || !password) return res.status(400).json({ error:'username と password は必須です' });
-
-  const sqlCheck = `SELECT id FROM users WHERE lower(username)=lower(?) OR ( ?<>'' AND lower(email)=lower(?) )`;
-  db.get(sqlCheck,[uname,mail,mail],(err,row)=>{
-    if (err) return res.status(500).json({ error:'Database error' });
-    if (row) return res.status(409).json({ error:'すでにユーザーが存在します（ユーザー名またはメールが重複）' });
-
-    db.run(`INSERT INTO users (username,email,password,role) VALUES (?,?,?,'user')`,
-      [uname,mail,password], function(e2){
-        if (e2) return res.status(500).json({ error:'Registration failed' });
-        res.json({ message:'User registered successfully', userId:this.lastID });
-      });
-  });
-});
-
-// ===== profile =====
-app.get('/api/me', requireAuth, (req,res)=>{
-  const uid=req.user.userId;
-  db.get(`SELECT id,username,email,role FROM users WHERE id=?`,[uid],(e,user)=>{
-    if (e) return res.status(500).json({ error:'Database error' });
-    db.get(`SELECT * FROM user_profiles WHERE user_id=?`,[uid],(e2,prof)=>{
-      if (e2) return res.status(500).json({ error:'Database error' });
-      res.json({ user, profile: prof || {} });
+  const { username='', email='', password='' } = req.body||{};
+  if(!username || !password) return res.status(400).json({error:'username/password required'});
+  db.run(`INSERT INTO users (username,email,password,role) VALUES (?,?,?,'user')`,
+    [username.trim(), email.trim(), password], function(err){
+      if(err){
+        if(String(err.message||'').includes('UNIQUE')) return res.status(409).json({error:'username exists'});
+        return res.status(500).json({error:'DB error'});
+      }
+      res.json({ ok:true, id:this.lastID });
     });
+});
+
+// --- 自分の情報
+app.get('/api/me', requireAuth, (req,res)=>{
+  db.get(`SELECT id,username,email,role,created_at FROM users WHERE id=?`,
+    [req.user.userId],
+    (e,row)=> e||!row ? res.status(500).json({error:'DB error'}) : res.json({ token:req.user, user:row })
+  );
+});
+
+// --- products
+app.get('/api/products', (req,res)=>{
+  const { search } = req.query;
+  let sql = `SELECT * FROM products`; const params=[];
+  if(search){ sql += ` WHERE name LIKE ? OR description LIKE ?`; params.push(`%${search}%`,`%${search}%`); }
+  db.all(sql, params, (err,rows)=>{
+    if(err) return res.status(500).json({error:'DB error'});
+    res.json(rows.map(r=>({...r, name:esc(r.name), description:esc(r.description)})));
+  });
+});
+app.get('/api/product/:id', (req,res)=>{
+  db.get(`SELECT * FROM products WHERE id=?`, [req.params.id], (err,row)=>{
+    if(err) return res.status(500).json({error:'DB error'});
+    if(!row)  return res.status(404).json({error:'Not found'});
+    res.json({...row, name:esc(row.name), description:esc(row.description)});
   });
 });
 
-// ===== products =====
-app.get('/api/products',(req,res)=>{
-  const { search, category } = req.query;
-  let q='SELECT * FROM products WHERE 1=1';
-  if (search)   q += ` AND name LIKE '%${search}%'`;
-  if (category) q += ` AND category='${category}'`;
-  db.all(q,(err,rows)=>{
-    if (err) return res.status(500).json({ error:'Database error' });
-    res.json(rows.map(r=>({ ...r, name:esc(r.name), description:esc(r.description) })));
-  });
-});
-
-app.get('/api/product/:id',(req,res)=>{
-  const q = `SELECT * FROM products WHERE id=${req.params.id}`;
-  db.get(q,(err,row)=>{
-    if (err) return res.status(500).json({ error:'Database error' });
-    if (!row) return res.status(404).json({ error:'Product not found' });
-    res.json({ ...row, name:esc(row.name), description:esc(row.description) });
-  });
-});
-
-// ===== orders/checkout (教材用のまま) =====
-app.post('/api/order',(req,res)=>{
-  const { productId, quantity, userId } = req.body;
-  const q = `INSERT INTO orders (user_id,product_id,quantity,total_price)
-             SELECT ${userId},${productId},${quantity},(price*${quantity}) FROM products WHERE id=${productId}`;
-  db.run(q,function(err){ if (err) return res.status(500).json({ error:'Order failed' });
-    res.json({ message:'Order placed successfully', orderId:this.lastID });
-  });
-});
-
-app.post('/api/checkout',(req,res)=>{
-  const { name, cardNumber, expiry, cvv, total } = req.body;
-  console.log('Payment info:', req.body);
-  db.run(`CREATE TABLE IF NOT EXISTS payments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT, card_number TEXT, expiry TEXT, cvv TEXT, total REAL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
-  const q = `INSERT INTO payments (name,card_number,expiry,cvv,total)
-             VALUES ('${name}','${cardNumber}','${expiry}','${cvv}',${total})`;
-  db.run(q,function(err){ if (err) return res.status(500).json({ error:'Checkout error' });
-    res.json({ ok:true, name, total });
-  });
-});
-
-// ===== Misc =====
-app.get('/api/file',(req,res)=>{
-  const { filename } = req.query;
-  const p = path.join(UPLOAD_DIR, filename);
-  if (fs.existsSync(p)) return res.sendFile(p);
-  res.status(404).json({ error:'File not found' });
-});
-
-app.get('/api/debug',(req,res)=>{
-  res.json({ environment: process.env, database:'shopping.db', version:'1.0.0', debug:true });
-});
-
-// ===== Admin: users =====
-app.get('/api/admin/users', requireAdmin, (req,res)=>{
-  db.all('SELECT * FROM users', (err,users)=>{
-    if (err) return res.status(500).json({ error:'Database error' });
-    res.json(users);
+// --- admin users
+app.get('/api/admin/users', requireAdmin, (_req,res)=>{
+  db.all(`SELECT id,username,email,role,created_at,password FROM users ORDER BY id`, (err,rows)=>{
+    if(err) return res.status(500).json({error:'DB error'});
+    res.json(rows);
   });
 });
 app.put('/api/admin/users/:id/password', requireAdmin, (req,res)=>{
-  const uid = Number(req.params.id); const { password } = req.body || {};
-  if (!Number.isInteger(uid)) return res.status(400).json({ error:'Bad id' });
-  if (!password || typeof password!=='string') return res.status(400).json({ error:'password required' });
-  db.get('SELECT username FROM users WHERE id=?',[uid],(e,row)=>{
-    if (e) return res.status(500).json({ error:'Database error' });
-    if (!row) return res.status(404).json({ error:'User not found' });
-    if (String(row.username).toLowerCase()==='root') return res.status(400).json({ error:'root password cannot be changed' });
-    db.run('UPDATE users SET password=? WHERE id=?',[password,uid], function(err2){
-      if (err2) return res.status(500).json({ error:'Database error' });
-      res.json({ ok:true, updated:this.changes });
-    });
-  });
-});
-app.put('/api/admin/users/:id/email', requireAdmin, (req,res)=>{
-  const uid = Number(req.params.id); const { email } = req.body || {};
-  if (!Number.isInteger(uid)) return res.status(400).json({ error:'Bad id' });
-  db.run('UPDATE users SET email=? WHERE id=?',[email||'',uid], function(err){
-    if (err) return res.status(500).json({ error:'Database error' });
+  const { id } = req.params; const { password } = req.body||{};
+  if(!password) return res.status(400).json({error:'password required'});
+  db.run(`UPDATE users SET password=? WHERE id=?`, [password, id], function(err){
+    if(err) return res.status(500).json({error:'DB error'});
     res.json({ ok:true, updated:this.changes });
   });
 });
 app.delete('/api/admin/users/:id', requireAdmin, (req,res)=>{
-  const uid = Number(req.params.id);
-  if (!Number.isInteger(uid)) return res.status(400).json({ error:'Bad id' });
-  db.get('SELECT username FROM users WHERE id=?',[uid],(e,row)=>{
-    if (e) return res.status(500).json({ error:'Database error' });
-    if (!row) return res.status(404).json({ error:'User not found' });
-    if (String(row.username).toLowerCase()==='root') return res.status(400).json({ error:'root user cannot be deleted' });
-    db.run('DELETE FROM users WHERE id=?',[uid], function(err2){
-      if (err2) return res.status(500).json({ error:'Database error' });
-      res.json({ deleted:this.changes });
-    });
+  db.run(`DELETE FROM users WHERE id=?`, [req.params.id], function(err){
+    if(err) return res.status(500).json({error:'DB error'});
+    res.json({ deleted:this.changes });
   });
 });
 
-// ===== Admin: DB backups =====
+// メール / 権限の軽量更新（rootは保護）
+function updateEmailRole(req, res) {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad_id' });
+
+  const email = (req.body && typeof req.body.email === 'string')
+    ? String(req.body.email).trim()
+    : undefined;
+  const role  = (req.body && typeof req.body.role === 'string')
+    ? String(req.body.role).trim()
+    : undefined;
+
+  db.get('SELECT username FROM users WHERE id=?', [id], (e, row) => {
+    if (e) return res.status(500).json({ error: 'Database error' });
+    if (!row) return res.status(404).json({ error: 'User not found' });
+    if (String(row.username).toLowerCase() === 'root') {
+      return res.status(400).json({ error: 'root cannot be changed' });
+    }
+
+    const sets = [];
+    const args = [];
+    if (email !== undefined) { sets.push('email=?'); args.push(email); }
+    if (role  !== undefined && (role === 'admin' || role === 'user')) { sets.push('role=?'); args.push(role); }
+    if (!sets.length) return res.json({ updated: 0 });
+
+    args.push(id);
+    db.run(`UPDATE users SET ${sets.join(', ')} WHERE id=?`, args, function (e2) {
+      if (e2) return res.status(500).json({ error: 'Database error' });
+      return res.json({ updated: this.changes });
+    });
+  });
+}
+app.put('/api/admin/users/:id',       requireAdmin, updateEmailRole);
+app.put('/api/admin/users/:id/email', requireAdmin, updateEmailRole);
+
+// ===== バックアップ API（統一版） =====
+
 // 一覧
-app.get('/api/admin/backups', requireAdmin, (req,res)=>{
-  try{
-    const files = fs.readdirSync(BACKUP_DIR)
-      .filter(f=>f.toLowerCase().endsWith('.db'))
-      .map(f=>{
-        const p = path.join(BACKUP_DIR,f);
-        const st = fs.statSync(p);
-        return { filename:f, size:st.size, mtime:st.mtimeMs };
-      })
-      .sort((a,b)=> b.mtime - a.mtime);
-    res.json(files);
-  }catch(e){
-    console.error(e);
-    res.status(500).json({ error:'Failed to list backups' });
+app.get('/api/admin/backups', requireAdmin, async (_req, res) => {
+  try {
+    const dir = path.join(__dirname, 'backups');
+    await fsp.mkdir(dir, { recursive: true });
+    const entries = await fsp.readdir(dir, { withFileTypes: true });
+
+    const rows = [];
+    for (const ent of entries) {
+      if (!ent.isFile()) continue;
+      if (!/\.db$/i.test(ent.name)) continue;
+      const full = path.join(dir, ent.name);
+      let st;
+      try { st = await fsp.stat(full); } catch { continue; }
+      const dt = new Date(st.mtime);
+      const created =
+        `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')} ` +
+        `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}:${String(dt.getSeconds()).padStart(2,'0')}`;
+      rows.push({ name: ent.name, size: st.size, created_at: created });
+    }
+    rows.sort((a,b) => b.created_at.localeCompare(a.created_at));
+    res.json(rows);
+  } catch (e) {
+    console.error('[ADMIN_BACKUPS:list]', e);
+    res.status(500).json({ error:'list_failed', message:String(e && e.message || e) });
   }
 });
 
-// 作成（任意名）: POST /api/admin/backup { name?:string }
-app.post('/api/admin/backup', requireAdmin, (req,res)=>{
-  const name = String(req.body?.name || '').replace(/[^\w.-]+/g,'_').slice(0,40);
-  const now = new Date();
-  const stamp = now.toISOString().replace(/[:T]/g,'-').split('.')[0]; // YYYY-MM-DD-HH-MM-SS
-  const file = `${stamp}${name?`_${name}`:''}.db`;
-  const dest = path.join(BACKUP_DIR, file);
-
-  try{
-    fs.copyFileSync(path.join(__dirname,'shopping.db'), dest);
-    res.json({ ok:true, filename:file });
-  }catch(e){
-    console.error(e);
-    res.status(500).json({ error:'Backup failed' });
+// 生成（既存フロントの「DBバックアップ作成」互換: /api/backup）
+app.post('/api/backup', requireAdmin, async (req, res) => {
+  try {
+    const dir = path.join(__dirname, 'backups');
+    await fsp.mkdir(dir, { recursive: true });
+    const base = (req.body && String(req.body.backupName||'').trim()) || '';
+    const safe = base.replace(/[^A-Za-z0-9_.-]/g, '');
+    const name = safe
+      ? (safe.endsWith('.db') ? safe : `${safe}.db`)
+      : `backup_${Date.now()}.db`;
+    await fsp.copyFile(path.join(__dirname,'shopping.db'), path.join(dir, name));
+    res.json({ ok:true, name });
+  } catch (e) {
+    console.error('[ADMIN_BACKUPS:create]', e);
+    res.status(500).json({ error:'create_failed', message:String(e && e.message || e) });
   }
 });
 
-// 復元: POST /api/admin/restore { filename }
-app.post('/api/admin/restore', requireAdmin, (req,res)=>{
-  const filename = path.basename(String(req.body?.filename || ''));
-  const src = path.join(BACKUP_DIR, filename);
-  const dst = path.join(__dirname,'shopping.db');
-  try{
-    if (!fs.existsSync(src)) return res.status(404).json({ error:'Backup not found' });
-    fs.copyFileSync(src, dst);
-    res.json({ ok:true });
-  }catch(e){
-    console.error(e);
-    res.status(500).json({ error:'Restore failed' });
+// リストア
+app.post('/api/admin/restore', requireAdmin, async (req, res) => {
+  try {
+    const raw = (req.body && req.body.name) || '';
+    const name = String(raw).replace(/[^A-Za-z0-9_.-]/g, '');
+    if (!name || !name.endsWith('.db')) return res.status(400).json({ error: 'bad_name' });
+
+    const src = path.join(__dirname, 'backups', name);
+    const dst = path.join(__dirname, 'shopping.db');
+    await fsp.copyFile(src, dst);
+    res.json({ ok: true, restored: name });
+  } catch (e) {
+    console.error('[ADMIN_BACKUPS:restore]', e);
+    res.status(500).json({ error:'restore_failed', message:String(e && e.message || e) });
   }
 });
 
-// 削除: DELETE /api/admin/backup/:filename
-app.delete('/api/admin/backup/:filename', requireAdmin, (req,res)=>{
-  const filename = path.basename(req.params.filename || '');
-  const target = path.join(BACKUP_DIR, filename);
-  try{
-    if (!fs.existsSync(target)) return res.status(404).json({ error:'Backup not found' });
-    fs.unlinkSync(target);
-    res.json({ ok:true });
-  }catch(e){
-    console.error(e);
-    res.status(500).json({ error:'Delete failed' });
+// 削除
+app.delete('/api/admin/backups/:name', requireAdmin, async (req, res) => {
+  try {
+    const raw = req.params.name || '';
+    const name = String(raw).replace(/[^A-Za-z0-9_.-]/g, '');
+    const p = path.join(__dirname, 'backups', name);
+    await fsp.unlink(p);
+    res.json({ ok: true, deleted: name });
+  } catch (e) {
+    const code = e && e.code === 'ENOENT' ? 404 : 500;
+    console.error('[ADMIN_BACKUPS:delete]', e);
+    res.status(code).json({ error:'delete_failed', message:String(e && e.message || e) });
   }
 });
 
-// ===== static =====
-app.get('/', (req,res)=> res.sendFile(path.join(__dirname,'public','index.html')));
+// --- 静的
+app.get('/', (_req,res)=> res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 app.listen(PORT, ()=>{
   console.log(`Vulnerable shopping site running on port ${PORT}`);
-  console.log('WARNING: This site contains intentional vulnerabilities for educational purposes only!');
-  console.log(`ENV summary: JWT_SECRET=${process.env.JWT_SECRET ? '(set)' : '(not set)'} | ENABLE_DEV_ROOT=${DEV_ROOT} | ADMIN_DEFAULT_EMAIL=${DEV_ROOT_EMAIL}`);
+  console.log(`[ENV] dotenv loaded: ${ENV_LOADED} | ENABLE_DEV_ROOT=${DEV_ROOT} | ADMIN_DEFAULT_EMAIL=${DEV_ROOT_EMAIL} | JWT_SECRET=${process.env.JWT_SECRET ? '(set)' : '(not set)'}`);
+  console.log(`[BOOT] admin/admin123 と (DEV_ROOT時) root/root を強制設定しました。`);
 });

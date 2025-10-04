@@ -1,122 +1,398 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>管理者パネル</title>
-  <link rel="stylesheet" href="./styles.css"/>
-
-  <!-- 見た目微調整（このページ専用の軽量CSS） -->
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>管理者パネル - Vulnerable Shop</title>
+  <link rel="stylesheet" href="./styles.css" />
   <style>
-    /* テーブル */
-    .adm-table{width:100%;border-collapse:separate;border-spacing:0 10px}
-    .adm-table th,.adm-table td{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.06)}
-    .adm-table thead th{border-bottom:1px solid rgba(255,255,255,.14);color:#cdd7ea;font-weight:700}
-    .adm-row{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px}
-    .adm-row td:first-child,.adm-row th:first-child{border-top-left-radius:12px;border-bottom-left-radius:12px}
-    .adm-row td:last-child,.adm-row th:last-child{border-top-right-radius:12px;border-bottom-right-radius:12px}
-
-    /* 入力 */
-    .adm-inp{
-      height:34px;padding:6px 10px;border-radius:8px;border:1px solid #2c3a59;
-      background:#101829;color:#e9edf6;outline:none;min-width:140px
-    }
-    .adm-inp:focus{border-color:#2d7ef7;box-shadow:0 0 0 3px rgba(45,126,247,.18)}
-
-    /* ボタン（小さめ・詰め配置） */
-    .btn-xs{height:30px;padding:0 10px;font-size:.9rem;border-radius:8px}
-    .btn-ghost{background:#14203a;border:1px solid #2b3a5a;color:#e9edf6}
-    .btn-ghost:hover{filter:brightness(1.08)}
-    .btn-danger.btn-xs{background:#d05860}
-    .btn-warning.btn-xs{background:#d6a33b}
-    .btn-group{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-
-    /* セクション余白 */
-    .admin-wrap{max-width:1100px;margin:24px auto}
-    .admin-section{margin:18px 0}
-    .admin-section h2{margin:0 0 10px 2px}
-    .admin-content{padding:16px;border-radius:16px;border:1px solid rgba(255,255,255,.08);
-      background:linear-gradient(180deg,rgba(29,37,61,.6),rgba(18,24,42,.6))
-    }
-
-    /* バックアップテーブル */
-    .bk-name{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-    .bk-ops .btn{min-width:74px}
+    .admin-wrap { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    .panel { background: rgba(8,12,26,.6); border:1px solid #27334d; border-radius:12px; padding:16px; }
+    .panel + .panel { margin-top: 24px; }
+    .panel h2 { margin-bottom:14px; }
+    .note { color:#9fb0d4; font-size:12px; margin-top:6px; }
+    .input-xs{ height:36px; padding:6px 10px; border-radius:10px; border:1px solid #2c3a59;
+               background:#101829; color:#e9edf6; outline:none; width:100%; }
+    .input-xs:focus{ border-color:#2d7ef7; box-shadow:0 0 0 3px rgba(45,126,247,.25); }
+    .btn-xs{ height:36px; padding:0 12px; border-radius:10px; font-weight:700; }
+    .btn-gap{ display:flex; gap:8px; flex-wrap:wrap; }
+    .table-wrap { overflow-x:auto; }
+    table.table { width:100%; border-collapse:collapse; }
+    table.table th, table.table td{ padding:10px 12px; border-bottom:1px solid #223051; }
+    table.table th{ text-align:left; color:#c9d4f1; opacity:.9; white-space:nowrap; }
+    table.table td.controls{ white-space:nowrap; }
+    .w-180 { width:180px; } .w-220 { width:220px; } .w-120 { width:120px; }
+    .w-140 { width:140px; } .w-80  { width:80px;  }
+    .backup-ops { display:flex; gap:8px; }
   </style>
 </head>
 <body>
-<header>
-  <nav class="navbar">
-    <div class="nav-brand"><h1>🛠 管理者パネル</h1></div>
-    <div class="nav-links">
-      <a href="./index.html">ホーム</a>
-      <a href="./products.html">商品</a>
-      <a href="./cart.html">カート</a>
-      <button id="logoutBtn" class="btn btn-danger btn-xs">ログアウト</button>
-    </div>
-  </nav>
-</header>
+  <header>
+    <nav class="navbar">
+      <div class="nav-brand"><h1>🛠 管理者パネル</h1></div>
+      <div class="nav-links">
+        <a href="./index.html">ホーム</a>
+        <a href="./products.html">商品</a>
+        <a href="./cart.html">カート</a>
+        <button id="logoutBtn" class="btn btn-danger">ログアウト</button>
+        <span id="navUser" class="user-pill" hidden></span>
+      </div>
+    </nav>
+  </header>
 
-<main class="admin-wrap">
-  <div style="margin:8px 0;">
-    <span id="adminHello" class="user-pill" style="display:inline-block">管理者でログイン中: root</span>
-  </div>
+  <main class="admin-wrap">
+    <section class="panel">
+      <h2>ユーザー一覧</h2>
+      <div class="table-wrap">
+        <table class="table" id="usersTable">
+          <thead>
+            <tr>
+              <th class="w-80">ID</th>
+              <th class="w-140">ユーザー名</th>
+              <th class="w-220">メール</th>
+              <th class="w-180">パスワード</th>
+              <th class="w-120">権限</th>
+              <th class="w-180">作成日時</th>
+              <th class="w-180">操作</th>
+            </tr>
+          </thead>
+          <tbody id="usersTbody"></tbody>
+        </table>
+      </div>
+      <div class="note">※ root は削除・パスワード変更不可</div>
+    </section>
 
-  <!-- Users -->
-  <section class="admin-section">
-    <h2>ユーザー一覧</h2>
-    <div class="admin-content">
-      <table class="adm-table">
-        <thead>
-          <tr>
-            <th style="width:64px">ID</th>
-            <th style="width:140px">ユーザー名</th>
-            <th style="min-width:240px">メール</th>
-            <th style="min-width:170px">パスワード</th>
-            <th style="width:90px">権限</th>
-            <th style="width:180px">作成日時</th>
-            <th style="width:170px">操作</th>
-          </tr>
-        </thead>
-        <tbody id="userTbody"></tbody>
-      </table>
-      <div style="margin-top:10px;color:#9fb3ff;font-size:12px">※ root は削除・パスワード変更不可</div>
-    </div>
-  </section>
-
-  <!-- Backups -->
-  <section class="admin-section">
-    <h2>DB バックアップ</h2>
-    <div class="admin-content">
-      <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
-        <input id="backupName" class="adm-inp" type="text" placeholder="任意の名前 (英数/.-_)">
-        <button id="backupMake" class="btn btn-info btn-xs">DBバックアップ作成</button>
+    <section class="panel">
+      <h2>DB バックアップ</h2>
+      <div class="btn-gap" style="margin-bottom:12px;">
+        <input id="backupName" class="input-xs w-220" placeholder="任意の名前（英数-_）" />
+        <button id="createBackupBtn" class="btn btn-primary btn-xs">DBバックアップ作成</button>
       </div>
 
-      <table class="adm-table">
-        <thead>
-          <tr>
-            <th>ファイル名</th>
-            <th style="text-align:right;width:120px">サイズ</th>
-            <th style="width:220px">作成日時</th>
-            <th style="width:190px">操作</th>
+      <div class="table-wrap">
+        <table class="table" id="bkTable">
+          <thead>
+            <tr>
+              <th>ファイル名</th>
+              <th class="w-180">サイズ/作成日時</th>
+              <th class="w-220">操作</th>
+            </tr>
+          </thead>
+          <tbody id="bkTbody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <div id="toaster"></div>
+  <script>
+    // 管理API用 fetch ラッパ（必ず Bearer を付ける）
+    async function adminFetch(url, opt={}){
+      const token = (window.Auth && Auth.getToken && Auth.getToken()) || localStorage.getItem('token') || '';
+      const headers = Object.assign(
+        { 'Content-Type':'application/json' },
+        opt.headers||{},
+        token ? { 'Authorization': `Bearer ${token}` } : {}
+      );
+      const res = await fetch(url, Object.assign({}, opt, { headers }));
+      const data = await res.json().catch(()=> ({}));
+      if (!res.ok) throw new Error(data?.error || res.status);
+      return data;
+    }
+  
+    // 例: ユーザー一覧
+    async function loadUsers(){
+      try {
+        const users = await adminFetch('/api/admin/users');
+        // ... ここでテーブル描画（既存ロジックそのまま）
+      } catch (e) {
+        console.error(e);
+        alert('ユーザー一覧の取得に失敗しました');
+      }
+    }
+  
+    // 例: バックアップ一覧
+    async function loadBackups(){
+      try {
+        const rows = await adminFetch('/api/admin/backups');
+        // ... ここでバックアップ表描画（既存ロジックそのまま）
+      } catch (e) {
+        console.error(e);
+        const box = document.getElementById('bkListNotice');
+        if (box) box.textContent = 'バックアップ一覧の取得に失敗（HTTP 500）';
+      }
+    }
+  
+    document.addEventListener('DOMContentLoaded', ()=>{
+      // admin 以外はリダイレクト
+      try { if (!(Auth && Auth.isAdmin && Auth.isAdmin())) location.href = './index.html'; } catch {}
+      loadUsers();
+      loadBackups();
+    });
+  </script>
+  
+  <script>
+    // ====== Robust token/user detection ======
+    const tokenKeyCandidates = ['token','jwt','jwt_token','authToken','access_token'];
+    const userKeyCandidates  = ['user','me','profile'];
+
+    const storageProbe = (keys, src) => {
+      for (const k of keys) {
+        try {
+          const v = src.getItem(k);
+          if (v) return v;
+        } catch {}
+      }
+      return '';
+    };
+
+    // ★ 正規表現なしの安全な Cookie 取得
+    function readCookie(name){
+      const parts = document.cookie ? document.cookie.split(';') : [];
+      for (const part of parts){
+        const p = part.trim();
+        if (!p) continue;
+        const eq = p.indexOf('=');
+        const key = eq >= 0 ? p.slice(0, eq) : p;
+        if (key === name){
+          return eq >= 0 ? decodeURIComponent(p.slice(eq+1)) : '';
+        }
+      }
+      return '';
+    }
+
+    function detectToken(){
+      // localStorage / sessionStorage
+      let t = storageProbe(tokenKeyCandidates, localStorage) || storageProbe(tokenKeyCandidates, sessionStorage);
+      if (t) return t;
+      // cookie
+      for (const k of tokenKeyCandidates){
+        t = readCookie(k);
+        if (t) return t;
+      }
+      return '';
+    }
+
+    function detectUser(){
+      for (const k of userKeyCandidates){
+        try{
+          const v = localStorage.getItem(k) || sessionStorage.getItem(k);
+          if (v) return JSON.parse(v);
+        }catch{}
+      }
+      return null;
+    }
+
+    const auth = {
+      get token(){ return detectToken(); },
+      get user(){ return detectUser(); }
+    };
+
+    const authHeader = () => auth.token ? { 'Authorization': 'Bearer ' + auth.token } : {};
+
+    function toast(msg){
+      let t = document.querySelector('#toaster');
+      if(!t){ t=document.createElement('div'); t.id='toaster'; document.body.appendChild(t); }
+      const n = document.createElement('div'); n.textContent = msg;
+      t.appendChild(n); setTimeout(()=>n.remove(), 1600);
+    }
+
+    // ====== Admin guard ======
+    async function guardAdmin(){
+      const pill = document.querySelector('#navUser');
+      if (pill && auth.user?.username){ pill.hidden=false; pill.style.display='inline-block'; pill.textContent = auth.user.username; }
+
+      if (!auth.token){
+        location.href='/index.html'; return;
+      }
+      try{
+        const res = await fetch('/api/me', { headers: authHeader() });
+        if (!res.ok){ throw new Error('me '+res.status); }
+        const j = await res.json();
+        if (!j?.user || j.user.role!=='admin'){ location.href='/index.html'; }
+      }catch{
+        location.href='/index.html';
+      }
+    }
+
+    // ====== Users ======
+    function showUsersErrorRow(message){
+      const tb = document.querySelector('#usersTbody');
+      tb.innerHTML = `<tr><td colspan="7">${message}</td></tr>`;
+    }
+
+    async function loadUsers(){
+      const tb = document.querySelector('#usersTbody');
+      tb.innerHTML = `<tr><td colspan="7">読み込み中…</td></tr>`;
+      try{
+        const res = await fetch('/api/admin/users', { headers: authHeader() });
+        if (!res.ok){
+          if (res.status===401 || res.status===403){
+            showUsersErrorRow('権限エラー（未ログイン/トークン不一致）。ログアウト→再ログインしてください。');
+          } else {
+            showUsersErrorRow('ユーザー一覧の取得に失敗しました（HTTP '+res.status+'）');
+          }
+          return;
+        }
+        const list = await res.json();
+        if (!Array.isArray(list) || list.length===0){
+          showUsersErrorRow('データがありません'); return;
+        }
+        tb.innerHTML = list.map(u=>{
+          const isRoot = String(u.username).toLowerCase()==='root';
+          const dis = isRoot ? 'disabled' : '';
+          const mail = u.email||'';
+          const pw   = u.password||'';
+          return `
+            <tr data-id="${u.id}" data-username="${u.username}">
+              <td>${u.id}</td>
+              <td>${u.username}</td>
+              <td><input class="input-xs email" value="${mail.replace(/"/g,'&quot;')}" ${isRoot?'readonly':''}></td>
+              <td><input class="input-xs pass"  value="${pw.replace(/"/g,'&quot;')}" ${isRoot?'readonly':''}></td>
+              <td>${u.role}</td>
+              <td>${u.created_at||''}</td>
+              <td class="controls">
+                <div class="btn-gap">
+                  <button class="btn btn-info btn-xs edit" ${dis}>編集</button>
+                  <button class="btn btn-danger btn-xs del" ${dis}>削除</button>
+                </div>
+              </td>
+            </tr>
+          `;
+        }).join('');
+
+        // 編集
+        document.querySelectorAll('.edit').forEach(b=>b.addEventListener('click', async (e)=>{
+          const tr = e.currentTarget.closest('tr');
+          const id = +tr.dataset.id;
+          const email = tr.querySelector('.email').value.trim();
+          const pass  = tr.querySelector('.pass').value;
+
+          let ok1=true, ok2=true;
+          if (pass!==''){
+            const r1 = await fetch(`/api/admin/users/${id}/password`, {
+              method:'PUT',
+              headers: { 'Content-Type':'application/json', ...authHeader() },
+              body: JSON.stringify({ password: pass })
+            }); ok1 = r1.ok;
+          }
+          try{
+            const r2 = await fetch(`/api/admin/users/${id}`, {
+              method:'PUT',
+              headers: { 'Content-Type':'application/json', ...authHeader() },
+              body: JSON.stringify({ email })
+            });
+            ok2 = r2.ok || r2.status===404 || r2.status===405;
+          }catch{}
+          toast((ok1&&ok2)?'保存しました':'保存に失敗しました');
+          loadUsers();
+        }));
+
+        // 削除
+        document.querySelectorAll('.del').forEach(b=>b.addEventListener('click', async (e)=>{
+          const tr = e.currentTarget.closest('tr');
+          const id = +tr.dataset.id;
+          const name = tr.dataset.username;
+          if (!confirm(`${name} を削除しますか？`)) return;
+          const r = await fetch(`/api/admin/users/${id}`, { method:'DELETE', headers: authHeader() });
+          toast(r.ok?'削除しました':'削除に失敗しました');
+          loadUsers();
+        }));
+
+      }catch(err){
+        console.error(err);
+        showUsersErrorRow('ユーザー一覧の取得に失敗しました（ネットワーク）');
+      }
+    }
+
+    // ====== Backups ======
+    function bkErrorRow(msg){
+      const tb = document.querySelector('#bkTbody');
+      tb.innerHTML = `<tr><td colspan="3">${msg}</td></tr>`;
+    }
+
+    function fmtSize(b){ if (b==null) return '-'; const mb=+b/1024/1024; return (mb<1?(mb*1024).toFixed(0)+' KB':mb.toFixed(2)+' MB'); }
+
+    async function loadBackups(){
+      const tb = document.querySelector('#bkTbody');
+      tb.innerHTML = `<tr><td colspan="3">読み込み中…</td></tr>`;
+      try{
+        const res = await fetch('/api/admin/backups', { headers: authHeader() });
+        if (!res.ok){ bkErrorRow('バックアップ一覧の取得に失敗（HTTP '+res.status+'）'); return; }
+        const list = await res.json();
+        if (!Array.isArray(list) || list.length===0){ bkErrorRow('バックアップがありません'); return; }
+        tb.innerHTML = list.map(b=>`
+          <tr data-name="${b.name}">
+            <td>${b.name}</td>
+            <td>${fmtSize(b.size)} / ${b.created_at||''}</td>
+            <td>
+              <div class="backup-ops">
+                <button class="btn btn-warning btn-xs restore">リストア</button>
+                <button class="btn btn-danger  btn-xs remove">削除</button>
+              </div>
+            </td>
           </tr>
-        </thead>
-        <tbody id="backupTbody"></tbody>
-      </table>
-      <div id="backupEmpty" style="margin-top:6px;display:none;color:#9fb3ff">バックアップはまだありません。</div>
-    </div>
-  </section>
-</main>
+        `).join('');
 
-<footer>
-  <p>&copy; Vulnerable Shop (教育目的)</p>
-</footer>
+        document.querySelectorAll('.restore').forEach(x=>x.addEventListener('click', async (e)=>{
+          const name = e.currentTarget.closest('tr').dataset.name;
+          if (!confirm(`${name} をリストアします。よろしいですか？`)) return;
+          const r = await fetch('/api/admin/restore', {
+            method:'POST', headers:{ 'Content-Type':'application/json', ...authHeader() },
+            body: JSON.stringify({ name })
+          });
+          toast(r.ok?'リストアしました（再起動が必要な場合あり）':'リストアに失敗しました');
+        }));
 
-<!-- 共通 -->
-<script src="./script.js"></script>
-<script src="./js/auth.js" defer></script>
-<!-- admin 専用 -->
-<script src="./js/admin.js" defer></script>
+        document.querySelectorAll('.remove').forEach(x=>x.addEventListener('click', async (e)=>{
+          const name = e.currentTarget.closest('tr').dataset.name;
+          if (!confirm(`${name} を削除します。よろしいですか？`)) return;
+          const r = await fetch(`/api/admin/backups/${encodeURIComponent(name)}`, {
+            method:'DELETE', headers: authHeader()
+          });
+          toast(r.ok?'削除しました':'削除に失敗しました');
+          loadBackups();
+        }));
+
+      }catch{
+        bkErrorRow('バックアップ一覧の取得に失敗（ネットワーク）');
+      }
+    }
+
+    async function createBackup(){
+      const name = document.querySelector('#backupName').value.trim();
+      const r = await fetch('/api/backup', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', ...authHeader() },
+        body: JSON.stringify({ backupName: name || 'backup' })
+      });
+      toast(r.ok?'バックアップを作成しました':'バックアップに失敗しました');
+      loadBackups();
+    }
+
+    // ====== boot ======
+    document.addEventListener('DOMContentLoaded', async ()=>{
+      await guardAdmin();
+
+      document.querySelector('#logoutBtn')?.addEventListener('click', ()=>{
+        // 可能性のあるキーを総掃除
+        [...tokenKeyCandidates, ...userKeyCandidates].forEach(k=>{
+          localStorage.removeItem(k); sessionStorage.removeItem(k);
+        });
+        // cookie も掃除
+        document.cookie.split(';').forEach(c=>{
+          const [n] = c.split('=');
+          if (n && tokenKeyCandidates.includes(n.trim())){
+            document.cookie = n.trim()+'=; Max-Age=0; path=/';
+          }
+        });
+        location.href='/index.html';
+      });
+
+      loadUsers();
+      loadBackups();
+      document.querySelector('#createBackupBtn')?.addEventListener('click', createBackup);
+    });
+  </script>
 </body>
 </html>

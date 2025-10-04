@@ -4,51 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>商品一覧 - Vulnerable Shop</title>
-  <link rel="stylesheet" href="styles.css"/>
+  <link rel="stylesheet" href="./styles.css"/>
 
-  <!-- 共通: ユーザ表示/バッジ -->
   <style>
-    .user-pill{
-      display:none;margin-left:10px;padding:6px 10px;border-radius:999px;
-      background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);
-      font-weight:600;letter-spacing:.02em
-    }
-    .cart-badge{
-      display:none;margin-left:6px;min-width:18px;height:18px;padding:0 6px;border-radius:9px;
-      background:#2d7ef7;color:#fff;font-size:12px;line-height:18px;text-align:center
-    }
-  </style>
-
-  <!-- 共通: モーダル見た目（index/admin と同一） -->
-  <style id="modal-fix">
-    .modal{position:fixed;inset:0;display:grid;place-items:center;padding:24px;z-index:1000}
-    .modal::before{content:"";position:absolute;inset:0;background:rgba(5,10,20,.64);backdrop-filter:blur(3px)}
-    .modal.hidden{display:none}.modal.open{display:grid}
-    .modal-content{
-      position:relative;z-index:1;width:clamp(320px,90vw,420px);padding:18px;border-radius:14px;
-      border:1px solid #27334d;background:linear-gradient(180deg,rgba(29,37,61,.96),rgba(18,24,42,.96));
-      box-shadow:0 12px 30px rgba(0,0,0,.45),0 0 0 1px rgba(255,255,255,.02) inset;color:#e9edf6;
-      display:grid;gap:12px
-    }
-    .modal-content h3{margin:0 0 4px;font-size:16px;font-weight:700;letter-spacing:.02em}
-    #registerForm,#loginForm{display:grid;gap:10px}
-    .modal-content input{
-      width:100%;height:40px;padding:10px 12px;border-radius:10px;border:1px solid #2c3a59;
-      background:#101829;color:#e9edf6;outline:none;transition:border-color .15s,box-shadow .15s
-    }
-    .modal-content input:focus{border-color:#2d7ef7;box-shadow:0 0 0 3px rgba(45,126,247,.25)}
-    .modal-content ::placeholder{color:#99a6bf}
-    .modal-content .btn{width:100%;height:40px;border-radius:10px;font-weight:600;letter-spacing:.02em}
-    .modal-content .btn.btn-primary{background:linear-gradient(180deg,#2d7ef7,#1f5ed6);border:0}
-    .modal-content .btn.btn-primary:hover{filter:brightness(1.05)}
-    .modal-content .btn.btn-primary:active{transform:translateY(1px)}
-    .modal-close{
-      position:absolute;top:10px;right:10px;width:28px;height:28px;display:grid;place-items:center;
-      font-size:18px;line-height:1;border-radius:8px;border:1px solid #2b374f;background:#0f1729;
-      color:#cdd7ea;cursor:pointer;transition:background .15s,transform .05s
-    }
-    .modal-close:hover{background:#19223b}.modal-close:active{transform:scale(.98)}
-    body.modal-open{overflow:hidden}
+    .hero { text-align:center; padding-top:28px; }
+    .search-container{ display:flex; gap:10px; justify-content:center; margin:10px 0 18px; }
+    .search-input{ width:min(640px,90vw); height:40px; padding:0 12px; border-radius:10px; border:1px solid #2c3a59; background:#101829; color:#e9edf6; }
   </style>
 </head>
 <body>
@@ -60,6 +21,7 @@
         <a href="./products.html" aria-current="page" style="font-weight:700;">商品</a>
         <a href="./cart.html">カート <span id="cartCount" class="cart-badge">0</span></a>
         <a href="./java-vuln.html" style="color:#ffd700;font-weight:bold;">Java脆弱性デモ</a>
+
         <div class="auth-buttons">
           <button id="loginBtn" class="btn btn-primary">ログイン</button>
           <button id="registerBtn" class="btn btn-secondary">新規登録</button>
@@ -70,24 +32,21 @@
     </nav>
   </header>
 
-  <main>
+  <main class="products-section">
     <section class="hero">
-      <div class="hero-content">
-        <h2>商品一覧</h2>
-        <p>検索で絞り込めます</p>
-        <div class="search-container">
-          <input type="text" id="searchInput" placeholder="商品を検索..." class="search-input">
-          <button id="searchBtn" class="btn btn-primary">検索</button>
-        </div>
+      <h2>商品一覧</h2>
+      <p>検索で絞り込めます</p>
+      <div class="search-container">
+        <input id="searchInput" type="text" class="search-input" placeholder="商品を検索...">
+        <button id="searchBtn" class="btn btn-primary">検索</button>
       </div>
     </section>
 
-    <section id="products" class="products-section">
-      <div id="productsGrid" class="products-grid"></div>
-    </section>
+    <!-- ここへ script.js が描画 -->
+    <div id="productsGrid" class="products-grid"></div>
   </main>
 
-  <!-- 共通と同一のモーダル（※ここを統一） -->
+  <!-- 共通モーダル（auth.js が制御） -->
   <div id="registerModal" class="modal hidden" aria-hidden="true">
     <div class="modal-content" tabindex="-1">
       <button type="button" id="registerClose" class="modal-close" aria-label="閉じる">×</button>
@@ -113,15 +72,17 @@
     </div>
   </div>
 
-  <!-- 読み込み順：共通 → auth（defer） -->
-  <script src="script.js"></script>
-  <script src="js/auth.js" defer></script>
+  <!-- 読み込み順が超重要：auth.js → script.js -->
+  <script src="./js/auth.js"></script>
+  <script src="./script.js"></script>
 
-  <!-- 初期描画（共通の loadProducts を呼ぶだけ） -->
+  <!-- 初回ロードで必ず一覧取得（クエリ q があればその値で絞り込み） -->
   <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      if (window.loadProducts) window.loadProducts('');
-      if (window.updateAuthUI) window.updateAuthUI();
+    window.addEventListener('DOMContentLoaded', () => {
+      const q = new URLSearchParams(location.search).get('q') || '';
+      const si = document.getElementById('searchInput');
+      if (si) si.value = q;
+      if (window.loadProducts) window.loadProducts(q);
     });
   </script>
 </body>
