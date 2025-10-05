@@ -60,6 +60,25 @@ db.serialize(() => {
     stock INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
+  // --- orders / order_items を作成（無ければ）
+  db.run(`CREATE TABLE IF NOT EXISTS orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    order_id TEXT UNIQUE,
+    subtotal INTEGER,
+    tax INTEGER,
+    total INTEGER,
+    last4 TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS order_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id TEXT,
+    product_id INTEGER,
+    name TEXT,
+    price INTEGER,
+    qty INTEGER
+  )`);
 
   // デモ商品
   db.run(`INSERT OR IGNORE INTO products (id,name,description,price,stock,image_path)
