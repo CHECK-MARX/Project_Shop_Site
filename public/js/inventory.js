@@ -1,140 +1,87 @@
-// public/js/inventory.js — 在庫管理（名前/価格の編集＋在庫加算）
+// public/js/inventory.js — 在庫管理（横並び・編集保存 / クリーン版）
 (() => {
-  if (window.__INV_PAGE_WIRED__) return; window.__INV_PAGE_WIRED__ = true;
+  'use strict';
+  if (window.__INV_WIRED_V2__) return;
+  window.__INV_WIRED_V2__ = true;
 
-  const $  = (s, r=document) => r.querySelector(s);
-  const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
-  const fmtJPY = window.fmtJPY || (n => `¥${Math.round(Number(n||0)).toLocaleString('ja-JP')}`);
+  /* ---------- 小ユーティリティ ---------- */
+  const $  = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
   const token = () => (window.Auth?.getToken?.() || localStorage.getItem('token') || '').trim();
 
-  function toast(msg){
-    let host = $('#toaster'); if(!host){ host=document.createElement('div'); host.id='toaster';
-      host.style.cssText='position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:9999;display:grid;gap:8px;';
+  const toInt = (v, def = 0) => {
+    const n = Math.trunc(Number(v));
+    return Number.isFinite(n) ? n : def;
+  };
+
+  function toast(msg, ms = 1300) {
+    let host = $('#toaster');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'toaster';
+      host.style.cssText =
+        'position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:9999;display:grid;gap:8px;';
       document.body.appendChild(host);
     }
     const n = document.createElement('div');
     n.textContent = msg;
-    n.style.cssText = 'padding:8px 12px;border-radius:10px;border:1px solid #2b3a5a;background:#0f1729;color:#e9edf6;box-shadow:0 8px 30px rgba(0,0,0,.35);font-weight:600;';
-    host.appendChild(n); setTimeout(()=>n.remove(), 1300);
+    n.style.cssText =
+      'padding:8px 12px;border-radius:10px;border:1px solid #2b3a5a;background:#0f1729;color:#e9edf6;' +
+      'box-shadow:0 8px 30px rgba(0,0,0,.35);font-weight:600;';
+    host.appendChild(n);
+    setTimeout(() => n.remove(), ms);
   }
 
-  async function api(path, opt={}){
-    const r = await fetch(path, {
-      ...opt,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token() ? { Authorization: `Bearer ${token()}` } : {}),
-        ...(opt.headers || {})
+  async function api(path, opt = {}) {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(token() ? { Authorization: `Bearer ${token()}` } : {}),
+      ...(opt.headers || {}),
+    };
+    const res = await fetch(path, { ...opt, headers });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+    return body;
+  }
+
+  /* ---------- スタイル注入（最小限） ---------- */
+  (function injectStyles() {
+    if ($('#invStylesClean')) return;
+    const st = document.createElement('style');
+    st.id = 'invStylesClean';
+    st.textContent = `
+      #invTable { width:100%; min-width:980px; }
+      #invTable thead th { white-space:nowrap; }
+      #invTbody td { vertical-align:middle; }
+      .inv-input {
+        height:36px; padding:6px 10px; border-radius:10px;
+        background:#0b1220; color:#e6edf7; border:1px solid #334155; outline:none;
       }
-    });
-    const b = await r.json().catch(()=> ({}));
-    if (!r.ok) throw new Error(b.error || r.status);
-    return b;
-  }
-
-  function rowHTML(p){
-    const pid = Number(p.id);
-    const price = Math.round(Number(p.price)||0);
-    const stock = Math.max(0, Number(p.stock)||0);
-    return `
-      <tr data-id="${pid}">
-        <td style="text-align:right;">${pid}</td>
-        <td>
-          <input class="inv-name" type="text" value="${(p.name || '').replace(/"/g,'&quot;')}" style="width: 240px;">
-        </td>
-        <td>
-          <div style="display:flex;align-items:center;gap:6px;">
-            <span style="opacity:.85">¥</span>
-            <input class="inv-price" type="number" min="0" step="1" value="${price}" style="width:110px;text-align:right;">
-          </div>
-        </td>
-        <td><span class="inv-stock" style="font-weight:700">${stock}</span></td>
-        <td>
-          <div class="btn-group">
-            <button class="btn btn-secondary inv-plus" data-val="1">+1</button>
-            <button class="btn btn-secondary inv-plus" data-val="5">+5</button>
-            <button class="btn btn-secondary inv-plus" data-val="10">+10</button>
-          </div>
-        </td>
-        <td>
-          <input class="inv-add" type="number" step="1" value="0" style="width:70px;text-align:right;">
-          <button class="btn btn-success inv-addbtn">追加</button>
-        </td>
-        <td>
-          <button class="btn btn-primary inv-save">保存</button>
-        </td>
-      </tr>
+      .inv-input:focus { border-color:#60a5fa; box-shadow:0 0 0 2px rgba(96,165,250,.25); }
+      .inv-name  { width:260px; }
+      .inv-price { width:110px; text-align:right; }
+      .inv-add   { width:80px;  text-align:right; }
+      .inv-ops   { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+      .inv-grp   { display:flex; gap:8px;  align-items:center; }
+      .inv-stock { font-weight:700; letter-spacing:.5px; }
+      .btn { white-space:nowrap; }
     `;
-  }
+    document.head.appendChild(st);
+  })();
 
-  async function load(){
-    const tb = $('#invTbody') || $('#inventoryBody') || $('#invBody');
-    const table = tb?.closest('table');
-    if (!tb) {
-      // ページに tbody が無い場合は簡易テーブルを作る
-      const main = $('main') || document.body;
-      const wrap = document.createElement('div');
-      wrap.innerHTML = `
-        <table class="table">
-          <thead>
-            <tr><th>ID</th><th>商品名</th><th>価格</th><th>在庫</th><th>操作</th><th>まとめ追加</th><th>保存</th></tr>
-          </thead>
-          <tbody id="invTbody"></tbody>
-        </table>
-      `;
-      main.appendChild(wrap);
-    }
-    const tbody = $('#invTbody') || $('#inventoryBody') || $('#invBody');
+  /* ---------- DOM 準備 ---------- */
+  function ensureTbody() {
+    // 既存IDの順で探す。無ければ作成。
+    let tbody = $('#invTbody') || $('#inventoryBody') || $('#invBody');
+    if (tbody) return tbody;
 
-    try{
-      const rows = await api('/api/admin/inventory');
-      tbody.innerHTML = rows.map(rowHTML).join('');
-    }catch(e){
-      console.error(e);
-      tbody.innerHTML = `<tr><td colspan="7" style="color:#ff8a8a">在庫一覧の取得に失敗しました</td></tr>`;
-    }
-  }
-
-  // クリック系（イベントデリゲート）
-  document.addEventListener('click', async (ev)=>{
-    const tr = ev.target.closest('tr[data-id]');
-    if (!tr) return;
-    const id = Number(tr.dataset.id);
-
-    // ＋ボタン
-    const plus = ev.target.closest('.inv-plus');
-    if (plus){
-      const add = tr.querySelector('.inv-add');
-      add.value = String(Math.round(Number(add.value)||0) + Math.round(Number(plus.dataset.val)||0));
-      return;
-    }
-
-    // 在庫 追加
-    const addBtn = ev.target.closest('.inv-addbtn');
-    if (addBtn){
-      const add = Math.round(Number(tr.querySelector('.inv-add')?.value)||0);
-      try{
-        await api(`/api/admin/products/${id}/stock/add`, { method:'POST', body: JSON.stringify({ add }) });
-        toast('在庫を更新しました');
-        await load();
-      }catch(e){ alert('在庫更新に失敗: '+e.message); }
-      return;
-    }
-
-    // 名前/価格の保存
-    const save = ev.target.closest('.inv-save');
-    if (save){
-      const name  = String(tr.querySelector('.inv-name')?.value || '').trim();
-      let price   = Math.round(Number(tr.querySelector('.inv-price')?.value)||0);
-      if (!Number.isFinite(price) || price < 0) price = 0;
-      try{
-        await api(`/api/admin/products/${id}`, { method:'PUT', body: JSON.stringify({ name, price }) });
-        toast('商品情報を更新しました');
-        await load();
-      }catch(e){ alert('保存に失敗: '+e.message); }
-      return;
-    }
-  });
-
-  document.addEventListener('DOMContentLoaded', load);
-})();
+    const host = $('#inventoryRoot') || $('main') || document.body;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `
+      <table id="invTable" class="table">
+        <thead>
+          <tr>
+            <th style="width:56px;">ID</th>
+            <th>商品名</th>
+            <th>価格</th>
+            <th>在
