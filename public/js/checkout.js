@@ -1,160 +1,167 @@
-/* checkout.js — 決済ページ専用。グローバル衝突を避けるため必ず IIFE で包む */
+/* checkout.js — 決済フォーム（合計表示 / 入力チェック / 決済呼び出し / 完了ページへ遷移） */
 (() => {
-  // --- 安全なローカルユーティリティ（グローバルに出さない） ---
+  'use strict';
+
+  // ローカルヘルパ（グローバルと衝突しない）
   const $  = (s, r=document) => r.querySelector(s);
   const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
   const fmtJPY = n => `¥${Math.round(Number(n||0)).toLocaleString('ja-JP')}`;
 
-  // 既存 Auth があればそれを使い、無ければ簡易フォールバック
-  const Auth = window.Auth || {
+  const FallbackAuth = {
     getToken(){ return localStorage.getItem('token') || ''; },
     getUser(){ try { return JSON.parse(localStorage.getItem('auth_user')||''); } catch { return null; } },
     isLoggedIn(){ return !!localStorage.getItem('token'); },
     openLogin(){
       const m = $('#loginModal');
-      if (m) { m.classList.remove('hidden'); m.classList.add('open'); document.body.classList.add('modal-open'); }
+      if (m){ m.classList.remove('hidden'); m.classList.add('open'); document.body.classList.add('modal-open'); }
     }
   };
+  const Auth = (window.Auth ?? FallbackAuth);
 
-  // script.js の getCart を使いたいが、ページ単独でも動くよう最小フォールバック
+  // カートAPI（既存があれば優先）
   function cartKey(){
-    const u = (Auth.getUser && Auth.getUser()) || null;
+    const u = Auth.getUser?.();
     return `cart:${u?.username || 'guest'}`;
   }
-  function getCart(){
-    try { return JSON.parse(localStorage.getItem(cartKey()) || '[]'); } catch { return []; }
-  }
-  function setCart(list){
-    localStorage.setItem(cartKey(), JSON.stringify(list));
-    try { window.updateCartBadge && window.updateCartBadge(); } catch {}
-  }
-  function toast(msg){
-    let t = $('#toaster'); if(!t){ t=document.createElement('div'); t.id='toaster'; document.body.appendChild(t); }
-    const n = document.createElement('div'); n.textContent = msg; t.appendChild(n);
-    setTimeout(()=> n.remove(), 1500);
-  }
+  const getCart = (typeof window.getCart === 'function')
+    ? window.getCart
+    : () => { try { return JSON.parse(localStorage.getItem(cartKey())||'[]'); } catch { return []; } };
 
-  // --- 入力チェック（ローカル実装） ---
-  const digitsOnly = s => String(s||'').replace(/\D+/g, '');
-  function luhnValid(card){
-    const s = digitsOnly(card);
+  const setCart = (typeof window.setCart === 'function')
+    ? window.setCart
+    : (list) => {
+        localStorage.setItem(cartKey(), JSON.stringify(list));
+        try { window.updateCartBadge && window.updateCartBadge(); } catch {}
+      };
+
+  // 入力バリデーション
+  const digits = s => String(s||'').replace(/\D+/g,'');
+  function luhnOk(card){
+    const s = digits(card);
     if (s.length < 12 || s.length > 19) return false;
     let sum = 0, dbl = false;
-    for (let i = s.length-1; i >= 0; i--){
+    for (let i = s.length - 1; i >= 0; i--){
       let d = s.charCodeAt(i) - 48;
       if (dbl){ d *= 2; if (d > 9) d -= 9; }
       sum += d; dbl = !dbl;
     }
-    return sum % 10 === 0;
+    return (sum % 10) === 0;
   }
-  function parseExpiry(mmYY){
+  function parseExp(mmYY){
     const m = String(mmYY||'').trim().replace(/\s+/g,'').toUpperCase();
-    const a = m.split('/');
-    if (a.length !== 2) return null;
-    const mm = parseInt(a[0],10), yy2 = parseInt(a[1],10);
+    const t = m.split('/');
+    if (t.length !== 2) return null;
+    let mm = parseInt(t[0],10);
+    let yy = parseInt(t[1],10);
     if (!(mm >= 1 && mm <= 12)) return null;
-    const yy = yy2 < 100 ? 2000 + yy2 : yy2;
+    yy = (yy < 100) ? 2000 + yy : yy;
     return { mm, yy };
   }
-  function expiryValid(exp){
-    const p = parseExpiry(exp); if (!p) return false;
-    const now = new Date();
-    const y = now.getFullYear(), m = now.getMonth()+1;
+  function expOk(v){
+    const p = parseExp(v); if (!p) return false;
+    const now = new Date(); const y = now.getFullYear(); const m = now.getMonth() + 1;
     return (p.yy > y) || (p.yy === y && p.mm >= m);
   }
-  const cvvValid = cvv => { const s = digitsOnly(cvv); return s.length === 3 || s.length === 4; };
+  const cvvOk = v => { const s = digits(v); return s.length === 3 || s.length === 4; };
 
-  // --- 合計とアイテム ---
-  function currentAmountAndItems(){
+  // 合計
+  function calcTotal(){
     const list = getCart();
-    const total = list.reduce((s,i)=> s + Math.round(Number(i.price)||0)*(Number(i.qty)||0), 0);
-    return { total, items: list };
+    const total = list.reduce((s,i)=> s + (Math.round(Number(i.price)||0) * (Number(i.qty)||0)), 0);
+    return { list, total };
+  }
+  function renderTotal(){
+    const { total } = calcTotal();
+    const el = $('#checkoutTotal');
+    if (el) el.textContent = fmtJPY(total);
   }
 
-  // --- フォーム配線 ---
-  function wire(){
-    const nameEl = $('#cardName');
-    const numEl  = $('#cardNumber');
-    const expEl  = $('#cardExp');
-    const cvvEl  = $('#cardCvv');
-    const form   = $('#checkoutForm');
-    const btn    = $('#payBtn');
-    const status = $('#payStatus');
-    const sumEl  = $('#checkoutTotal');
+  // 決済
+  async function doPay(ev){
+    ev?.preventDefault?.();
 
-    if (!form || !nameEl || !numEl || !expEl || !cvvEl || !btn) return;
+    if (!Auth.isLoggedIn?.()){
+      try { window.toast && window.toast('ログインが必要です'); } catch {}
+      Auth.openLogin?.();
+      return;
+    }
 
-    // 合計表示
-    try { const { total } = currentAmountAndItems(); if (sumEl) sumEl.textContent = fmtJPY(total); } catch {}
+    const name = $('#cardName')?.value || '';
+    const num  = $('#cardNumber')?.value || '';
+    const exp  = $('#cardExp')?.value || '';
+    const cvv  = $('#cardCvv')?.value || '';
 
-    // 直前の「No token」メッセージを消しておく
-    if (status) status.textContent = '';
+    const errs = [];
+    if (!name.trim())  errs.push('氏名');
+    if (!luhnOk(num))  errs.push('カード番号');
+    if (!expOk(exp))   errs.push('有効期限');
+    if (!cvvOk(cvv))   errs.push('CVV');
 
-    const handler = async (ev) => {
-      ev?.preventDefault?.();
+    const { list, total } = calcTotal();
+    if (!list.length || total <= 0) errs.push('カート');
 
-      // ログイン必須
-      if (!Auth.isLoggedIn || !Auth.isLoggedIn()){
-        toast('ログインが必要です'); Auth.openLogin && Auth.openLogin(); return;
+    if (errs.length){
+      try { window.toast && window.toast(`入力を確認してください: ${errs.join(' / ')}`); } catch {}
+      return;
+    }
+
+    const btn = $('#payBtn') || $('#checkoutForm button[type="submit"]');
+    const old = btn?.textContent;
+    if (btn){ btn.disabled = true; btn.textContent = '処理中…'; }
+
+    try{
+      const token = Auth.getToken?.() || '';
+      const payloadItems = list.map(i => ({
+        id: (i.id ?? i.productId),        // どちらでもOK
+        qty: (Number(i.qty) || 1)
+      }));
+
+      const res = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type':'application/json',
+          'Accept':'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          items: payloadItems,             // 価格はサーバ参照
+          cardLast4: digits(num).slice(-4),
+          name: name.trim()
+        })
+      });
+
+      let body;
+      try { body = await res.json(); }
+      catch { body = { ok:false, error: await res.text().catch(()=>`HTTP_${res.status}`) }; }
+
+      if (!res.ok || !body?.ok){
+        console.error('CHECKOUT_FAILED', res.status, body);
+        throw new Error(body?.error || `CHECKOUT_FAILED_${res.status}`);
       }
 
-      const { total, items } = currentAmountAndItems();
-      if (!items.length || total <= 0){ toast('カートが空です'); return; }
-
-      const nm  = nameEl.value.trim();
-      const num = numEl.value;
-      const exp = expEl.value;
-      const cvv = cvvEl.value;
-
-      const errs = [];
-      if (!nm) errs.push('氏名');
-      if (!luhnValid(num)) errs.push('カード番号');
-      if (!expiryValid(exp)) errs.push('有効期限');
-      if (!cvvValid(cvv)) errs.push('CVV');
-
-      if (errs.length){ toast(`入力を確認してください: ${errs.join(' / ')}`); return; }
-
-      const tok = (Auth.getToken && Auth.getToken()) || '';
-      if (!tok){ if (status) status.textContent = '決済失敗: No token'; toast('ログインが切れました'); return; }
-
-      const old = btn.textContent; btn.disabled = true; btn.textContent = '処理中…';
-
-      try{
-        const res = await fetch('/api/checkout', {
-          method: 'POST',
-          headers: {
-            'Content-Type':'application/json',
-            'Authorization': `Bearer ${tok}`
-          },
-          body: JSON.stringify({
-            amount: total,
-            items: items.map(i=>({ id:i.productId, qty:i.qty, price:i.price })),
-            cardLast4: digitsOnly(num).slice(-4),
-            name: nm
-          })
-        });
-        const data = await res.json().catch(()=> ({}));
-        if (!res.ok || !data?.ok) throw new Error(`checkout failed: ${res.status}`);
-
-        // 成功
-        if (status) status.textContent = `支払い完了（注文ID: ${data.orderId}）`;
-        setCart([]); // クリア
-        toast('支払いが完了しました');
-
-        // カート画面へ（空のカートが表示されます）
-        setTimeout(()=> location.href = './cart.html', 600);
-      }catch(err){
-        console.error(err);
-        if (status) status.textContent = '決済に失敗しました';
-        toast('決済に失敗しました');
-      }finally{
-        btn.disabled = false; btn.textContent = old || '支払う';
-      }
-    };
-
-    form.addEventListener('submit', handler);
-    btn.addEventListener('click', handler);
+      // ← 成功したときだけクリア・バッジ更新
+      setCart([]);
+      try { window.toast && window.toast(`支払い完了（注文ID: ${body.orderId}）`); } catch {}
+      try { const badge = $('#cartCount'); if (badge) badge.textContent = '0'; } catch {}
+      setTimeout(()=>{ location.href = `/order-complete.html?ref=${encodeURIComponent(body.orderId)}`; }, 500);
+    } catch(e){
+      console.error(e);
+      try { window.toast && window.toast('決済に失敗しました'); } catch {}
+      // 失敗時は何もしない（カート保持・バッジも維持）
+    } finally {
+      if (btn){ btn.disabled = false; btn.textContent = old || '支払う'; }
+      renderTotal(); // 表示だけ再計算（カートは成功時以外は保持）
+    }
   }
 
-  document.addEventListener('DOMContentLoaded', wire);
+  function wireCheckout(){
+    renderTotal();
+    const form = $('#checkoutForm') || $('form');
+    if (form){ form.addEventListener('submit', doPay); } // click の重複登録はしない
+    window.addEventListener('storage', e => {
+      if (e?.key && e.key.startsWith('cart:')) renderTotal();
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', wireCheckout);
 })();

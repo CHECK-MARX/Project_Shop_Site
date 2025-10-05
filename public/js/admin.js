@@ -1,4 +1,4 @@
-// public/js/admin.js — Admin：小さめボタン&整列版
+// public/js/admin.js — Admin：ユーザー＆バックアップ + ナビは script.js に委譲
 (() => {
   if (window.__ADMIN_WIRED__) return; window.__ADMIN_WIRED__ = true;
   const $ = s => document.querySelector(s);
@@ -43,7 +43,7 @@
           <td>${u.role}</td>
           <td>${(u.created_at||'').replace('T',' ').replace('.000Z','')}</td>
           <td>
-            <div class="btn-group">
+            <div class="btn-group" style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn btn-ghost btn-xs adm-edit" data-uid="${u.id}" ${dis}>編集</button>
               <button class="btn btn-danger btn-xs adm-del" data-uid="${u.id}" ${isRoot?'disabled':''}>削除</button>
             </div>
@@ -96,7 +96,7 @@
           <td style="text-align:right">${fmtSize(b.size)}</td>
           <td>${fmtDate(b.mtime)}</td>
           <td class="bk-ops">
-            <div class="btn-group">
+            <div class="btn-group" style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn btn-warning btn-xs act-restore" data-fn="${encodeURIComponent(b.filename)}">リストア</button>
               <button class="btn btn-danger  btn-xs act-delbk"   data-fn="${encodeURIComponent(b.filename)}">削除</button>
             </div>
@@ -147,5 +147,16 @@
   document.addEventListener('DOMContentLoaded', async ()=>{
     await loadUsers();
     await loadBackups();
+
+    // === ナビは script.js に任せる（重複防止） ===
+    if (typeof window.updateAdminNav === 'function') window.updateAdminNav();
+
+    // 念のため重複があれば除去（href ベース）
+    const dedupe = (selector) => {
+      const a = Array.from(document.querySelectorAll(selector));
+      a.slice(1).forEach(el => el.remove());
+    };
+    dedupe('.nav-links a[href$="inventory.html"]');
+    dedupe('.nav-links a[href$="admin.html"]');
   });
 })();

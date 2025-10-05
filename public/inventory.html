@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>在庫管理 - Vulnerable Shop</title>
+  <link rel="stylesheet" href="./styles.css"/>
+</head>
+<body>
+  <header class="navbar">
+    <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
+    <div class="nav-links">
+      <a href="./index.html">ホーム</a>
+      <a href="./products.html">商品</a>
+      <a href="./cart.html">カート <span id="cartCount" class="cart-badge">0</span></a>
+      <a href="./inventory.html" aria-current="page" style="font-weight:700;">在庫管理</a>
+      <div class="auth-buttons">
+        <button id="loginBtn" class="btn btn-primary">ログイン</button>
+        <button id="registerBtn" class="btn btn-secondary">新規登録</button>
+        <button id="logoutBtn" class="btn btn-danger" style="display:none;">ログアウト</button>
+        <span id="navUser" class="user-pill" hidden></span>
+      </div>
+    </div>
+  </header>
+
+  <main class="products-section" style="max-width:980px;">
+    <h2>在庫管理（管理者専用）</h2>
+    <p id="invMsg" style="opacity:.85;"></p>
+
+    <div class="modal-content" style="padding:0;">
+      <table class="table" style="width:100%">
+        <thead>
+          <tr>
+            <th style="width:60px;">ID</th>
+            <th>商品名</th>
+            <th style="width:120px;">価格</th>
+            <th style="width:100px;">在庫</th>
+            <th style="width:300px;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="invTbody"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <!-- 共通（任意で既存の auth/script を流用） -->
+  <script src="./script.js" defer></script>
+  <script src="./js/auth.js" defer></script>
+
+  <!-- 在庫管理ページ用 -->
+  <script src="./js/inventory.js" defer></script>
+
+  <!-- 既存のログイン/登録モーダル（他ページと同じブロック） -->
+  <div id="registerModal" class="modal hidden" aria-hidden="true">
+    <div class="modal-content" tabindex="-1">
+      <button type="button" id="registerClose" class="modal-close">×</button>
+      <h3>新規登録</h3>
+      <form id="registerForm">
+        <input id="regUsername"  type="text"     placeholder="ユーザー名" required>
+        <input id="regEmail"     type="email"    placeholder="メール（任意）">
+        <input id="regPassword"  type="password" placeholder="パスワード" required>
+        <button id="registerSubmit" type="submit" class="btn btn-primary">登録</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="loginModal" class="modal hidden" aria-hidden="true">
+    <div class="modal-content" tabindex="-1">
+      <button type="button" id="loginClose" class="modal-close">×</button>
+      <h3>ログイン</h3>
+      <form id="loginForm">
+        <input id="loginUsername" type="text"     placeholder="ユーザー名" required>
+        <input id="loginPassword" type="password" placeholder="パスワード" required>
+        <button id="loginSubmit" type="submit" class="btn btn-primary">ログイン</button>
+      </form>
+    </div>
+  </div>
+</body>
+</html>
