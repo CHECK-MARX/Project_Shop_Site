@@ -13,7 +13,7 @@
   const Auth = {
     getToken() {
       // 互換: 以前のキー名に入っている場合も吸収
-      const fallbacks = ['token','jwt','jwtToken','auth_token'];
+      const fallbacks = ['token','jwt','jwtToken','auth_token','authToken'];
       for (const k of [LS_TOKEN, ...fallbacks]) {
         const v = localStorage.getItem(k);
         if (v && v.length > 10) return v;
@@ -21,7 +21,7 @@
       return '';
     },
     getUser() {
-      try { return JSON.parse(localStorage.getItem(LS_USER)||''); } catch { return null; }
+      try { return JSON.parse(localStorage.getItem(LS_USER) || 'null'); } catch { return null; }
     },
     isLoggedIn() { return !!this.getToken(); },
     isAdmin() {
@@ -37,16 +37,16 @@
       document.body.classList.remove('modal-open');
     },
     setSession(token, user) {
-      localStorage.setItem(LS_TOKEN, token);
+      localStorage.setItem(LS_TOKEN, token || '');
       localStorage.setItem(LS_USER, JSON.stringify(user||{}));
       // 互換で残っている他キーは掃除
-      ['jwt','jwtToken','auth_token'].forEach(k => localStorage.removeItem(k));
+      ['jwt','jwtToken','auth_token','authToken'].forEach(k => localStorage.removeItem(k));
       // ナビ表示
-      const navUser = $('#navUser');
-      const logoutBtn = $('#logoutBtn');
-      const loginBtn  = $('#loginBtn');
-      const regBtn    = $('#registerBtn');
-      if (navUser) { navUser.textContent = user?.username || ''; navUser.hidden = false; navUser.style.display='inline-block'; }
+      const navUser  = $('#navUser');
+      const logoutBtn= $('#logoutBtn');
+      const loginBtn = $('#loginBtn');
+      const regBtn   = $('#registerBtn');
+      if (navUser)  { navUser.textContent = user?.username || ''; navUser.hidden = false; navUser.style.display='inline-block'; }
       if (logoutBtn) logoutBtn.style.display = 'inline-block';
       if (loginBtn)  loginBtn.style.display  = 'none';
       if (regBtn)    regBtn.style.display    = 'none';
@@ -54,13 +54,13 @@
     clearSession() {
       localStorage.removeItem(LS_TOKEN);
       localStorage.removeItem(LS_USER);
-      ['jwt','jwtToken','auth_token'].forEach(k => localStorage.removeItem(k));
+      ['jwt','jwtToken','auth_token','authToken'].forEach(k => localStorage.removeItem(k));
       // ナビ表示
-      const navUser = $('#navUser');
-      const logoutBtn = $('#logoutBtn');
-      const loginBtn  = $('#loginBtn');
-      const regBtn    = $('#registerBtn');
-      if (navUser) { navUser.textContent = ''; navUser.hidden = true; navUser.style.display='none'; }
+      const navUser  = $('#navUser');
+      const logoutBtn= $('#logoutBtn');
+      const loginBtn = $('#loginBtn');
+      const regBtn   = $('#registerBtn');
+      if (navUser)  { navUser.textContent = ''; navUser.hidden = true; navUser.style.display='none'; }
       if (logoutBtn) logoutBtn.style.display = 'none';
       if (loginBtn)  loginBtn.style.display  = 'inline-block';
       if (regBtn)    regBtn.style.display    = 'inline-block';
@@ -93,33 +93,28 @@
       const badge = $('#cartCount'); if (badge) { badge.style.display='none'; badge.textContent='0'; }
       // 管理者ページに居たらトップへ
       if (location.pathname.endsWith('/admin.html')) location.href = './index.html';
+      else location.reload();
     });
 
     // ログイン送信
     const loginForm = $('#loginForm');
     if (loginForm) loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const username = $('#loginUsername').value.trim();
-      const password = $('#loginPassword').value;
+      const username = $('#loginUsername')?.value?.trim() || '';
+      const password = $('#loginPassword')?.value || '';
       try {
         const res = await fetch('/api/login', {
           method: 'POST',
           headers: { 'Content-Type':'application/json' },
           body: JSON.stringify({ username, password })
         });
-        const data = await res.json();
+        const data = await res.json().catch(()=>({}));
         if (!res.ok) throw new Error(data?.error || 'login failed');
 
         Auth.setSession(data.token, data.user);
         Auth.closeModals();
 
-        // 管理者なら admin.html へ自動遷移
-        if (data.user?.role === 'admin' && !location.pathname.endsWith('/admin.html')) {
-          location.href = './admin.html';
-          return;
-        }
-        // そのまま
-        // カートの guest 分をマージ（script.js 側に実装があるが保険）
+        // カート guest をマージ（保険）
         try {
           const guest = JSON.parse(localStorage.getItem('cart:guest') || '[]');
           if (guest.length) {
@@ -134,12 +129,18 @@
             localStorage.removeItem('cart:guest');
           }
         } catch {}
-        // バッジ更新（あれば）
-        try { window.updateCartBadge && window.updateCartBadge(); } catch {}
+
+        // 管理者なら admin.html へ
+        if (data.user?.role === 'admin' && !location.pathname.endsWith('/admin.html')) {
+          location.href = './admin.html';
+          return;
+        }
+
+        // 画面更新（バッジ/ナビ反映）
+        location.reload();
       } catch (err) {
         console.error(err);
-        // 既存のトーストがあれば表示
-        try { window.toast && window.toast('Invalid credentials'); } catch {}
+        window.toast?.('Invalid credentials');
         alert('ログインに失敗しました');
       }
     });
@@ -148,16 +149,16 @@
     const regForm = $('#registerForm');
     if (regForm) regForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const username = $('#regUsername').value.trim();
-      const email    = $('#regEmail').value.trim();
-      const password = $('#regPassword').value;
+      const username = $('#regUsername')?.value?.trim() || '';
+      const email    = $('#regEmail')?.value?.trim() || '';
+      const password = $('#regPassword')?.value || '';
       try {
         const res = await fetch('/api/register', {
           method:'POST',
           headers:{ 'Content-Type':'application/json' },
           body: JSON.stringify({ username, email, password })
         });
-        const data = await res.json();
+        const data = await res.json().catch(()=>({}));
         if (!res.ok) throw new Error(data?.error || 'register failed');
         alert('登録しました。ログインしてください。');
         Auth.closeModals();

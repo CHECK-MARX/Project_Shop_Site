@@ -1,4 +1,4 @@
-// server.js — admin/root を起動時に必ず上書き確保（admin=admin123 / root=root）版（バックアップAPI統一）
+// server.js — 起動時に admin/root を確保、JWT認証、製品API、管理API、バックアップAPI、決済モック
 
 let ENV_LOADED = false;
 try { require('dotenv').config(); ENV_LOADED = true; } catch {}
@@ -9,8 +9,8 @@ const bcrypt  = require('bcrypt');
 const jwt     = require('jsonwebtoken');
 const cors    = require('cors');
 const path    = require('path');
-const fs      = require('fs');               // ← 追加
-const fsp     = fs.promises;                 // ← 追加（以降これを使用）
+const fs      = require('fs');
+const fsp     = fs.promises;
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -27,29 +27,18 @@ const db = new sqlite3.Database(path.join(__dirname, 'shopping.db'));
 
 // --- 起動時に admin/root を「必ず」上書きする
 function ensureAdminBootstrap() {
-  // admin をUPSERT → 必ず role=admin, password=admin123 に強制
+  // admin → 既存があっても role/password を強制
   db.run(`INSERT OR IGNORE INTO users (username,email,password,role)
           VALUES ('admin','admin@shop.com','admin123','admin')`);
   db.run(`UPDATE users SET role='admin' WHERE username='admin' AND role <> 'admin'`);
-  db.run(`UPDATE users SET password='admin123' WHERE username='admin'`); // ★常に上書き
+  db.run(`UPDATE users SET password='admin123' WHERE username='admin'`);
 
   if (DEV_ROOT) {
-    // root もUPSERT → 必ず role=admin, password=root に強制
     db.run(`INSERT OR IGNORE INTO users (username,email,password,role)
             VALUES ('root', ?, 'root', 'admin')`, [DEV_ROOT_EMAIL]);
     db.run(`UPDATE users SET role='admin', email=? WHERE username='root'`, [DEV_ROOT_EMAIL]);
-    db.run(`UPDATE users SET password='root' WHERE username='root'`); // ★常に上書き
+    db.run(`UPDATE users SET password='root' WHERE username='root'`);
     console.log('[BOOT] DEV_ROOT=true により root/root (admin) を確保しました');
-  }
-
-  // 確認用ログ（任意）
-  db.get(`SELECT username,role,password FROM users WHERE username='admin'`, (_, r) => {
-    if (r) console.log(`[BOOT] admin: role=${r.role} / pass="${r.password}"`);
-  });
-  if (DEV_ROOT) {
-    db.get(`SELECT username,role,password FROM users WHERE username='root'`, (_, r) => {
-      if (r) console.log(`[BOOT] root : role=${r.role} / pass="${r.password}"`);
-    });
   }
 }
 
@@ -72,18 +61,14 @@ db.serialize(() => {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 
-  // デモ商品（1行ずつINSERT）
-  db.run(`INSERT OR IGNORE INTO products
-          (id,name,description,price,stock,image_path)
+  // デモ商品
+  db.run(`INSERT OR IGNORE INTO products (id,name,description,price,stock,image_path)
           VALUES (1,'Laptop','High-performance laptop',999,10,'https://picsum.photos/seed/laptop/800/500')`);
-  db.run(`INSERT OR IGNORE INTO products
-          (id,name,description,price,stock,image_path)
+  db.run(`INSERT OR IGNORE INTO products (id,name,description,price,stock,image_path)
           VALUES (2,'Smartphone','Latest smartphone model',700,25,'https://picsum.photos/seed/phone/800/500')`);
-  db.run(`INSERT OR IGNORE INTO products
-          (id,name,description,price,stock,image_path)
+  db.run(`INSERT OR IGNORE INTO products (id,name,description,price,stock,image_path)
           VALUES (3,'Headphones','Wireless noise-cancelling headphones',200,50,'https://picsum.photos/seed/headphones/800/500')`);
-  db.run(`INSERT OR IGNORE INTO products
-          (id,name,description,price,stock,image_path)
+  db.run(`INSERT OR IGNORE INTO products (id,name,description,price,stock,image_path)
           VALUES (4,'Anime Hero','<img src=x onerror=alert(1)>',60,100,'https://picsum.photos/seed/hero/800/500')`);
 
   ensureAdminBootstrap();
@@ -118,7 +103,7 @@ app.post('/api/login', (req,res)=>{
     if(!u)  return res.status(401).json({error:'Invalid credentials'});
 
     let ok = false;
-    if (u.password && u.password.length > 20) { // 旧ハッシュ互換
+    if (u.password && u.password.length > 20) { // ハッシュ互換
       try { ok = bcrypt.compareSync(pass, u.password); } catch {}
     } else {
       ok = (u.password === pass);
@@ -226,7 +211,7 @@ function updateEmailRole(req, res) {
 app.put('/api/admin/users/:id',       requireAdmin, updateEmailRole);
 app.put('/api/admin/users/:id/email', requireAdmin, updateEmailRole);
 
-// ===== バックアップ API（統一版） =====
+// ===== バックアップ API =====
 
 // 一覧
 app.get('/api/admin/backups', requireAdmin, async (_req, res) => {
@@ -256,16 +241,15 @@ app.get('/api/admin/backups', requireAdmin, async (_req, res) => {
   }
 });
 
-// 生成（既存フロントの「DBバックアップ作成」互換: /api/backup）
+// 生成（互換: /api/backup）
 app.post('/api/backup', requireAdmin, async (req, res) => {
   try {
     const dir = path.join(__dirname, 'backups');
     await fsp.mkdir(dir, { recursive: true });
     const base = (req.body && String(req.body.backupName||'').trim()) || '';
     const safe = base.replace(/[^A-Za-z0-9_.-]/g, '');
-    const name = safe
-      ? (safe.endsWith('.db') ? safe : `${safe}.db`)
-      : `backup_${Date.now()}.db`;
+    const name = safe ? (safe.endsWith('.db') ? safe : `${safe}.db`)
+                      : `backup_${Date.now()}.db`;
     await fsp.copyFile(path.join(__dirname,'shopping.db'), path.join(dir, name));
     res.json({ ok:true, name });
   } catch (e) {
@@ -303,6 +287,21 @@ app.delete('/api/admin/backups/:name', requireAdmin, async (req, res) => {
     const code = e && e.code === 'ENOENT' ? 404 : 500;
     console.error('[ADMIN_BACKUPS:delete]', e);
     res.status(code).json({ error:'delete_failed', message:String(e && e.message || e) });
+  }
+});
+
+// --- Mock checkout API (requireAuth)
+app.post('/api/checkout', requireAuth, (req, res) => {
+  try {
+    const { amount, items, cardLast4, name } = req.body || {};
+    if (!(amount > 0) || !Array.isArray(items)) {
+      return res.status(400).json({ ok:false, error:'bad_request' });
+    }
+    const orderId = 'ORD-' + Date.now();
+    return res.json({ ok:true, orderId, charged: amount, last4: String(cardLast4||'').slice(-4), name: name||'' });
+  } catch (e) {
+    console.error('[checkout]', e);
+    return res.status(500).json({ ok:false, error:'server_error' });
   }
 });
 

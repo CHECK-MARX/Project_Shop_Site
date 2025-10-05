@@ -1,37 +1,32 @@
-/* script.js — 商品一覧 / カート（ユーザー別・旧HTML互換） */
+/* script.js — 商品一覧 / カート（ユーザー別・旧HTML互換/多重読込OK） */
 
-const $  = (s, r=document) => r.querySelector(s);
-const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
-const fmtJPY = n => `¥${Math.round(Number(n||0)).toLocaleString('ja-JP')}`;
+/* ---- duplicate-load guard ---- */
+if (!window.__APP_CORE_LOADED__) {
+  window.__APP_CORE_LOADED__ = true;
+}
 
-// ===== Auth ブリッジ（auth.js がなければ最小実装） =====
+/* 既存があればそれを使い、無ければ定義（←再宣言エラー防止） */
+const $  = window.$  || ((s, r=document) => r.querySelector(s));
+const $$ = window.$$ || ((s, r=document) => Array.from(r.querySelectorAll(s)));
+const fmtJPY = window.fmtJPY || (n => `¥${Math.round(Number(n||0)).toLocaleString('ja-JP')}`);
+/* 他ファイルからも使えるよう公開（1回だけ代入される） */
+window.$ = $; window.$$ = $$; window.fmtJPY = fmtJPY;
+
+/* ===== Auth ブリッジ（auth.js が無ければ最小実装） ===== */
 const Auth = window.Auth || {
   getToken(){ return localStorage.getItem('token') || ''; },
-  getUser(){
-    try {
-      const raw = localStorage.getItem('auth_user');
-      return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
-  },
-  isLoggedIn(){ return !!(localStorage.getItem('token')); },
-  openLogin(){
-    const m = $('#loginModal');
-    if (m) { m.classList.remove('hidden'); m.classList.add('open'); document.body.classList.add('modal-open'); }
-  }
+  getUser(){ try{ const raw = localStorage.getItem('auth_user'); return raw?JSON.parse(raw):null; }catch{ return null; } },
+  isLoggedIn(){ return !!localStorage.getItem('token'); },
+  openLogin(){ const m = $('#loginModal'); if (m){ m.classList.remove('hidden'); m.classList.add('open'); document.body.classList.add('modal-open'); } }
 };
 
-// ===== カート（ユーザー別保存） =====
-function cartKey() {
-  const u = Auth.getUser();
-  return `cart:${u?.username || 'guest'}`;
-}
-function getCart(){
-  try { return JSON.parse(localStorage.getItem(cartKey())||'[]'); } catch { return []; }
-}
+/* ===== カート（ユーザー別保存） ===== */
+function cartKey(){ const u = Auth.getUser(); return `cart:${u?.username || 'guest'}`; }
+function getCart(){ try{ return JSON.parse(localStorage.getItem(cartKey())||'[]'); }catch{ return []; } }
 function setCart(list){
   localStorage.setItem(cartKey(), JSON.stringify(list));
   updateCartBadge();
-  renderCartPage();        // ← 保存のたびにその場で再描画
+  renderCartPage(); // 表示更新
 }
 function updateCartBadge(){
   const badge = $('#cartCount'); if (!badge) return;
@@ -41,7 +36,7 @@ function updateCartBadge(){
 }
 function clearGuestCartOnLogin(){
   const u = Auth.getUser(); if (!u) return;
-  try {
+  try{
     const guest = JSON.parse(localStorage.getItem('cart:guest')||'[]');
     if (!guest.length) return;
     const cur = getCart();
@@ -52,13 +47,13 @@ function clearGuestCartOnLogin(){
     }
     setCart(cur);
     localStorage.removeItem('cart:guest');
-  } catch {}
+  }catch{}
 }
 
-// ===== API =====
+/* ===== API ===== */
 async function apiGet(p){ const r = await fetch(p); if(!r.ok) throw new Error(r.status); return r.json(); }
 
-// ===== 商品一覧 =====
+/* ===== 商品一覧 ===== */
 async function loadProducts(search=""){
   try{
     const qs = search ? `?search=${encodeURIComponent(search)}` : '';
@@ -81,8 +76,8 @@ async function loadProducts(search=""){
       </div>
     `).join('');
 
-    $$('.add-to-cart', grid).forEach(btn => {
-      btn.addEventListener('click', e => {
+    $$('.add-to-cart', grid).forEach(btn=>{
+      btn.addEventListener('click', e=>{
         const card = e.currentTarget.closest('.product-card');
         const product = {
           id: Number(card.dataset.id),
@@ -90,7 +85,7 @@ async function loadProducts(search=""){
           price: Number(card.dataset.price)||0
         };
 
-        if (!Auth.isLoggedIn()) {
+        if (!Auth.isLoggedIn()){
           toast('ログインするとカートに追加できます');
           Auth.openLogin();
           return;
@@ -103,24 +98,22 @@ async function loadProducts(search=""){
         toast('カートに追加しました');
       });
     });
-  } catch(e){
+  }catch(e){
     console.error(e);
     const grid = $('#productsGrid'); if (grid) grid.innerHTML = `<div class="alert alert-danger" style="grid-column:1/-1;text-align:center">商品を読み込めませんでした</div>`;
   }
 }
 window.loadProducts = loadProducts;
 
-// ===== カートページ描画（#cartItems なければ #items に描画） =====
-function cartContainer(){
-  return $('#cartItems') || $('#items') || null;
-}
+/* ===== カート描画（#cartItems なければ #items 互換） ===== */
+function cartContainer(){ return $('#cartItems') || $('#items') || null; }
 function renderCartPage(){
   const wrap = cartContainer();
-  const totalEl = $('#cartTotal') || $('#total');  // ← #total 互換
+  const totalEl = $('#cartTotal') || $('#total');
   if (!wrap && !totalEl) return;
 
   const list = getCart();
-  const total = list.reduce((s,i)=> s+ (Math.round(Number(i.price)||0) * (Number(i.qty)||0)), 0);
+  const total = list.reduce((s,i)=> s + (Math.round(Number(i.price)||0) * (Number(i.qty)||0)), 0);
 
   if (wrap){
     wrap.innerHTML = list.length ? list.map(i=>`
@@ -139,7 +132,6 @@ function renderCartPage(){
       </div>
     `).join('') : `<div class="alert alert-info">カートは空です</div>`;
 
-    // 量調整/削除
     $$('.qty-btn.minus', wrap).forEach(b=>b.addEventListener('click',e=>{
       const id = Number(e.currentTarget.dataset.id);
       const list = getCart(); const it = list.find(x=>x.productId===id); if(!it) return;
@@ -158,29 +150,28 @@ function renderCartPage(){
   if (totalEl) totalEl.textContent = fmtJPY(total);
 }
 
-// ===== 検索欄 =====
+/* ===== 検索 ===== */
 function wireSearch(){
   const input = $('#searchInput'); const btn = $('#searchBtn'); if(!input||!btn) return;
-  const exec = () => {
+  const exec = ()=>{
     const q = input.value.trim();
-    if ($('#productsGrid')) loadProducts(q);       // products.html 内で絞り込み
+    if ($('#productsGrid')) loadProducts(q);
     else location.href = `./products.html?q=${encodeURIComponent(q)}`;
   };
   btn.addEventListener('click', exec);
-  input.addEventListener('keydown', e => { if (e.key === 'Enter') exec(); });
+  input.addEventListener('keydown', e=>{ if (e.key === 'Enter') exec(); });
 }
 
-// ===== トースト =====
+/* ===== トースト ===== */
 function toast(msg){
   let t = $('#toaster'); if(!t){ t=document.createElement('div'); t.id='toaster'; document.body.appendChild(t); }
   const n = document.createElement('div'); n.textContent = msg; t.appendChild(n);
   setTimeout(()=>{ n.remove(); }, 1500);
 }
-window.toast = toast;
+window.toast = window.toast || toast;         // 既存があれば再代入しない
 window.updateCartBadge = updateCartBadge;
 
 document.addEventListener('DOMContentLoaded', ()=>{
-  // ログイン直後の guest→user マージ
   clearGuestCartOnLogin();
   updateCartBadge();
 
@@ -189,18 +180,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if (cartContainer() || $('#cartTotal') || $('#total')) renderCartPage();
   wireSearch();
 
-  // 他タブ/ページからの更新も同期
+  // 他タブ同期
   window.addEventListener('storage', ev=>{
-    if (ev.key && ev.key.startsWith('cart:')) {
-      // ユーザー切替や他ページでの変更を即反映
-      updateCartBadge();
-      renderCartPage();
-    }
-    if (ev.key === 'auth_user' || ev.key === 'token') {
-      // ログイン状態の変化にも追従
-      clearGuestCartOnLogin();
-      updateCartBadge();
-      renderCartPage();
-    }
+    if (ev.key && ev.key.startsWith('cart:')) { updateCartBadge(); renderCartPage(); }
+    if (ev.key === 'auth_user' || ev.key === 'token') { clearGuestCartOnLogin(); updateCartBadge(); renderCartPage(); }
   });
 });
