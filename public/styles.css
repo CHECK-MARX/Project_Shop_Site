@@ -5,8 +5,10 @@
 
 /* ---- Reset / base ---- */
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; }
+html { min-height: 100%; }              /* ← 高さ固定しない */
 body {
+  min-height: 100vh;                    /* 画面以上に伸びる */
+  min-height: 100dvh;                   /* モバイルのUI変動に強い */
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans JP", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
   line-height: 1.6;
   color: #e9edf6;
@@ -16,7 +18,7 @@ body {
     linear-gradient(135deg, #0f1020 0%, #1a1033 50%, #101b3a 100%);
 }
 
-/* ---- Buttons ---- */
+/* ---- Buttons (base) ---- */
 .btn {
   display: inline-flex; align-items: center; justify-content: center;
   height: 44px; padding: 0 16px; border-radius: 10px; border: 0;
@@ -34,6 +36,16 @@ body {
 .btn-danger   { background: #dc3545; }
 .btn-warning  { background: #ffc107; color:#1a1a1a; }
 .btn-info     { background: #17a2b8; }
+
+/* ---- Buttons (sizes & variants) ---- */
+.btn-sm { height: 36px; padding: 0 12px; border-radius: 10px; font-size: 14px; }
+.btn-xs { height: 28px; padding: 0 10px; border-radius: 8px;  font-size: 12px; }
+.btn-ghost{
+  background: transparent; color:#e9edf6;
+  border:1px solid rgba(255,255,255,.18);
+}
+.btn-ghost:hover{ background: rgba(255,255,255,.08); }
+.btn-group{ display:inline-flex; align-items:center; gap:8px; }
 
 /* ---- Navbar ---- */
 .navbar {
@@ -106,7 +118,7 @@ body {
 
 /* ---- Tables (admin) ---- */
 .table{ width:100%; border-collapse: collapse; }
-.table th, .table td{ padding:12px 14px; border-bottom:1px solid #223051; }
+.table th, .table td{ padding:12px 14px; border-bottom:1px solid #223051; vertical-align: middle; }
 .table th{ text-align:left; color:#c9d4f1; opacity:.9; }
 
 /* ============================
@@ -191,6 +203,21 @@ body.modal-open{ overflow: hidden; }
   border-color:#2d7ef7; box-shadow: 0 0 0 3px rgba(45,126,247,.25);
 }
 #searchBtn{ height:42px; }
+
+/* ---- Inventory Management (在庫管理ページの見た目を統一) ---- */
+#invTable{ width:100%; min-width: 980px; }
+#invTbody td{ vertical-align: middle; }
+.inv-input{
+  height:36px; padding:6px 10px; border-radius:10px;
+  background:#0b1220; color:#e6edf7; border:1px solid #334155; outline:none;
+}
+.inv-input:focus{ border-color:#60a5fa; box-shadow:0 0 0 2px rgba(96,165,250,.25); }
+.inv-name{ width:260px; }
+.inv-price{ width:110px; text-align:right; }
+.inv-add{ width:80px; text-align:right; }
+.inv-ops{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+.inv-grp{ display:flex; gap:8px; align-items:center; }
+.inv-stock{ font-weight:700; letter-spacing:.5px; }
 
 /* ---- Responsive ---- */
 @media (max-width: 768px) {
