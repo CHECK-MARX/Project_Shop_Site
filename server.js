@@ -304,6 +304,141 @@ app.post('/api/checkout', requireAuth, (req, res) => {
     return res.status(500).json({ ok:false, error:'server_error' });
   }
 });
+// …（先頭～既存の require / app.use はそのまま）…
+
+// === 追加: 注文テーブル ===
+db.serialize(() => {
+  // 既存 users / products の CREATE はそのまま
+
+  // orders
+  db.run(`CREATE TABLE IF NOT EXISTS orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    order_code TEXT UNIQUE,
+    payer_name TEXT,
+    card_last4 TEXT,
+    subtotal REAL,
+    tax REAL,
+    total REAL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  // order_items
+  db.run(`CREATE TABLE IF NOT EXISTS order_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER,
+    product_id INTEGER,
+    name TEXT,
+    unit_price REAL,
+    qty INTEGER,
+    line_total REAL
+  )`);
+});
+
+// === 既存: requireAuth / requireAdmin などはそのまま ===
+
+// === 変更: /api/checkout で「注文をDBに保存」 ===
+app.post('/api/checkout', requireAuth, (req, res) => {
+  try {
+    const { amount, items, cardLast4, name } = req.body || {};
+    if (!(amount > 0) || !Array.isArray(items) || !items.length) {
+      return res.status(400).json({ ok:false, error:'bad_request' });
+    }
+
+    // デモのためクライアント送信の単価をそのまま採用
+    const subtotal = items.reduce((s,i)=> s + (Number(i.price)||0) * (Number(i.qty)||0), 0);
+    const tax = Math.round(subtotal * 0.1); // 税10%（デモ）
+    const total = amount || (subtotal + tax);
+
+    const orderCode = Date.now().toString(36); // 簡易な注文番号
+    db.run(
+      `INSERT INTO orders (user_id, order_code, payer_name, card_last4, subtotal, tax, total)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [req.user.userId, orderCode, name||'', String(cardLast4||'').slice(-4), subtotal, tax, total],
+      function(err){
+        if (err) {
+          console.error('[checkout:insert order]', err);
+          return res.status(500).json({ ok:false, error:'save_failed' });
+        }
+        const orderId = this.lastID;
+
+        // 明細を保存
+        const stmt = db.prepare(
+          `INSERT INTO order_items (order_id, product_id, name, unit_price, qty, line_total)
+           VALUES (?,?,?,?,?,?)`
+        );
+        try{
+          for (const it of items){
+            const pid = Number(it.id)||0;
+            const up  = Number(it.price)||0;
+            const qq  = Number(it.qty)||0;
+            stmt.run(orderId, pid, String(it.name||''), up, qq, up*qq);
+          }
+        } finally {
+          stmt.finalize();
+        }
+
+        const ts = new Date().toISOString();
+        return res.json({
+          ok:true,
+          orderId: orderCode,   // → フロントはこの orderId を使う
+          charged: total,
+          last4: String(cardLast4||'').slice(-4),
+          name: name||'',
+          ts
+        });
+      }
+    );
+  } catch (e) {
+    console.error('[checkout]', e);
+    return res.status(500).json({ ok:false, error:'server_error' });
+  }
+});
+
+// === 追加: 自分の注文一覧（最近 n 件） ===
+app.get('/api/my-orders', requireAuth, (req,res)=>{
+  const limit = Math.min( Number(req.query.limit)||10, 50 );
+  db.all(
+    `SELECT order_code AS orderId, payer_name AS payerName, card_last4 AS last4,
+            subtotal, tax, total, created_at
+     FROM orders
+     WHERE user_id=?
+     ORDER BY id DESC
+     LIMIT ?`,
+    [req.user.userId, limit],
+    (err, rows)=>{
+      if (err) return res.status(500).json({error:'DB error'});
+      res.json(rows||[]);
+    }
+  );
+});
+
+// === 追加: 注文詳細（items も返す） ===
+app.get('/api/my-orders/:orderId', requireAuth, (req,res)=>{
+  const code = String(req.params.orderId||'').trim();
+  db.get(
+    `SELECT id, order_code AS orderId, payer_name AS payerName, card_last4 AS last4,
+            subtotal, tax, total, created_at
+     FROM orders WHERE user_id=? AND order_code=?`,
+    [req.user.userId, code],
+    (err, order)=>{
+      if (err) return res.status(500).json({error:'DB error'});
+      if (!order) return res.status(404).json({error:'not found'});
+      db.all(
+        `SELECT product_id AS productId, name, unit_price AS unitPrice, qty, line_total AS lineTotal
+         FROM order_items WHERE order_id=?`,
+        [order.id],
+        (e, items)=>{
+          if (e) return res.status(500).json({error:'DB error'});
+          delete order.id;
+          res.json({...order, items: items||[]});
+        }
+      );
+    }
+  );
+});
+
+// …（最後の app.get('/', …) / app.listen はそのまま）
 
 // --- 静的
 app.get('/', (_req,res)=> res.sendFile(path.join(__dirname, 'public', 'index.html')));

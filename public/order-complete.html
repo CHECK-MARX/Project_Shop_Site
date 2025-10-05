@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>注文完了 | Vulnerable Shop</title>
+  <link rel="stylesheet" href="./styles.css"/>
+</head>
+<body>
+  <header>
+    <nav class="navbar">
+      <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
+      <div class="nav-links">
+        <a href="./index.html">ホーム</a>
+        <a href="./products.html">商品</a>
+        <a href="./cart.html">カート <span id="cartCount" class="cart-badge">0</span></a>
+        <a href="./java-vuln.html" style="color:#ffd700;font-weight:bold;">Java脆弱性デモ</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="products-section" style="max-width: 900px;">
+    <section class="hero" style="text-align:left;">
+      <h2 style="margin-bottom:8px;">ご注文ありがとうございました</h2>
+      <p style="opacity:.85">以下の内容でご注文を受け付けました。OK を押すとホームに戻ります。</p>
+    </section>
+
+    <section id="orderSummary" class="sum-box" aria-live="polite">
+      <!-- JSで埋め込み -->
+    </section>
+
+    <div style="display:flex; gap:10px; margin-top:16px;">
+      <button id="okBtn" class="btn btn-success">OK</button>
+      <button id="printBtn" class="btn btn-secondary">レシートを印刷</button>
+      <a href="./products.html" class="btn btn-primary">買い物を続ける</a>
+    </div>
+  </main>
+
+  <div id="toaster" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);display:grid;gap:8px;"></div>
+
+  <script src="./script.js"></script>
+  <script src="./js/order-complete.js"></script>
+</body>
+</html>

@@ -186,3 +186,62 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if (ev.key === 'auth_user' || ev.key === 'token') { clearGuestCartOnLogin(); updateCartBadge(); renderCartPage(); }
   });
 });
+// === 認証付き GET ヘルパ ===
+async function apiAuthGet(url){
+  const t = (window.Auth?.getToken?.() || '').trim();
+  const r = await fetch(url, { headers: { ...(t ? {Authorization:`Bearer ${t}`} : {}) }});
+  if(!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+// === 最近の注文をホームに描画 ===
+async function loadRecentOrders(){
+  const box = document.getElementById('recentOrders');
+  const hint = document.getElementById('ordersHint');
+  if (!box) return;
+
+  // 未ログインなら案内だけ
+  if (!(window.Auth?.isLoggedIn?.())) {
+    box.innerHTML = `<div class="alert alert-info">ログインすると最近の注文が表示されます。</div>`;
+    if (hint) hint.textContent = '';
+    return;
+  }
+
+  try{
+    const rows = await apiAuthGet('/api/my-orders?limit=5');
+    if (!rows.length){
+      box.innerHTML = `<div class="alert alert-info">まだ注文がありません。</div>`;
+      if (hint) hint.textContent = '';
+      return;
+    }
+    box.innerHTML = rows.map(o => {
+      const dt = new Date(o.created_at || Date.now());
+      const when = `${dt.getFullYear()}/${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+      return `
+        <div class="product-card" style="display:grid;grid-template-columns:1fr auto;gap:8px;">
+          <div>
+            <div style="font-weight:700;">注文ID: <span style="font-family:monospace">${o.orderId}</span></div>
+            <div style="opacity:.85">${when}</div>
+            <div style="margin-top:4px;">合計: <strong style="color:#34d399">${fmtJPY(o.total)}</strong>（小計 ${fmtJPY(o.subtotal)} / 税 ${fmtJPY(o.tax)}）</div>
+            <div style="opacity:.8">支払: **** ${o.last4 || '****'}</div>
+          </div>
+          <div style="display:flex; align-items:center;">
+            <a class="btn btn-secondary" href="./order-complete.html?ref=${encodeURIComponent(o.orderId)}">詳細</a>
+          </div>
+        </div>`;
+    }).join('');
+    if (hint) hint.textContent = '※ 直近5件まで表示しています。';
+  }catch(e){
+    console.error(e);
+    box.innerHTML = `<div class="alert alert-danger">注文履歴を取得できませんでした。</div>`;
+    if (hint) hint.textContent = '';
+  }
+}
+
+// === 既存の DOMContentLoaded の末尾あたりに追加 ===
+document.addEventListener('DOMContentLoaded', ()=>{
+  // …既存の初期化処理…
+
+  // ホームに「最近の注文」を出す
+  loadRecentOrders();
+});
