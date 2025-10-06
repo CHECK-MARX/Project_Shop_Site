@@ -1,80 +1,97 @@
-<!DOCTYPE html><html lang="ja"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Vulnerable Shop</title>
-<link rel="stylesheet" href="./styles.css">
-</head><body>
-<header>
-  <nav class="navbar">
-    <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
-    <div class="nav-links">
-      <a href="./index.html" aria-current="page" style="font-weight:700;">ホーム</a>
-      <a href="./products.html">商品</a>
-      <a href="./cart.html">カート <span id="cartCount" class="cart-badge">0</span></a>
-      <a href="./java-vuln.html" style="color:#ffd700;font-weight:bold;">Java脆弱性デモ</a>
-      <div class="auth-buttons">
-        <button id="loginBtn" class="btn btn-primary">ログイン</button>
-        <button id="registerBtn" class="btn btn-secondary">新規登録</button>
-        <button id="logoutBtn" class="btn btn-danger" style="display:none;">ログアウト</button>
-        <span id="navUser" class="user-pill" hidden></span>
-        <a id="profileLink" href="./profile.html" style="display:none;margin-left:8px;">プロフィール</a>
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Vulnerable Shop</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <!-- Navbar -->
+  <header>
+    <nav class="navbar">
+      <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
+      <div class="nav-links">
+        <a href="./index.html" aria-current="page" style="font-weight:700;">ホーム</a>
+        <a href="./products.html">商品</a>
+        <a href="./cart.html">カート <span id="cartCount" class="cart-badge">0</span></a>
+        <a href="./java-vuln.html" style="color:#ffd700;font-weight:bold;">Java脆弱性デモ</a>
+        <div class="auth-buttons">
+          <button id="loginBtn" class="btn btn-primary">ログイン</button>
+          <button id="registerBtn" class="btn btn-secondary">新規登録</button>
+          <button id="logoutBtn" class="btn btn-danger" style="display:none;">ログアウト</button>
+          <span id="navUser" class="user-pill" hidden></span>
+          <a id="profileLink" href="./profile.html" style="display:none;margin-left:8px;">プロフィール</a>
+        </div>
+      </div>
+    </nav>
+  </header>
+
+  <!-- Hero / Search -->
+  <main class="hero" id="home">
+    <div class="hero-content" style="text-align:center">
+      <h2>教育用脆弱性ショッピングサイト</h2>
+      <p>このサイトはセキュリティ教育のために意図的に脆弱性を含んでいます</p>
+      <div class="search-container" style="display:inline-flex;gap:10px;align-items:center">
+        <input id="searchInput" class="search-input" type="text" placeholder="商品を検索..." />
+        <button id="searchBtn" class="btn btn-primary">検索</button>
       </div>
     </div>
-  </nav>
-</header>
+  </main>
 
-<main class="hero" id="home">
-  <div class="hero-content" style="text-align:center">
-    <h2>教育用脆弱性ショッピングサイト</h2>
-    <p>このサイトはセキュリティ教育のために意図的に脆弱性を含んでいます</p>
-    <div class="search-container" style="display:inline-flex;gap:10px;align-items:center">
-      <input id="searchInput" class="search-input" type="text" placeholder="商品を検索...">
-      <button id="searchBtn" class="btn btn-primary">検索</button>
+  <!-- 売れ筋ランキング（在庫の売上集計からTop10） -->
+  <section class="products-section" id="bestWrap">
+    <h2 style="margin-bottom:10px;">売れ筋ランキング</h2>
+    <div id="bestList" class="best-list"></div>
+  </section>
+
+  <!-- カート（ホーム簡易表示） -->
+  <section id="cart" class="cart-section">
+    <h2>ショッピングカート</h2>
+    <div id="cartItems" class="cart-items"></div>
+    <div class="sum-box">
+      <div class="sum-row">
+        <div class="sum-ttl">合計: <span id="cartTotal">¥0</span></div>
+        <div><a href="./cart.html" class="btn btn-success">チェックアウト</a></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 最近の注文 -->
+  <section id="recent-orders" class="products-section">
+    <h2>最近の注文</h2>
+    <div id="recentOrders" class="orders-list"><!-- script.js が埋める --></div>
+    <p id="ordersHint" style="opacity:.7; margin-top:6px;"></p>
+  </section>
+
+  <!-- Auth Modals -->
+  <div id="registerModal" class="modal hidden" aria-hidden="true">
+    <div class="modal-content" tabindex="-1">
+      <button type="button" id="registerClose" class="modal-close">×</button>
+      <h3>新規登録</h3>
+      <form id="registerForm">
+        <input id="regUsername"  type="text"     placeholder="ユーザー名" required />
+        <input id="regEmail"     type="email"    placeholder="メール（任意）" />
+        <input id="regPassword"  type="password" placeholder="パスワード" required />
+        <button id="registerSubmit" type="submit" class="btn btn-primary">登録</button>
+      </form>
     </div>
   </div>
-</main>
 
-<section id="cart" class="cart-section">
-  <h2>ショッピングカート</h2>
-  <div id="cartItems" class="cart-items"></div>
-  <div class="sum-box"><div class="sum-row">
-    <div class="sum-ttl">合計: <span id="cartTotal">¥0</span></div>
-    <div><a href="./cart.html" class="btn btn-success">チェックアウト</a></div>
-  </div></div>
-</section>
-<!-- 最近の注文 -->
-<section id="recent-orders" class="products-section">
-  <h2>最近の注文</h2>
-  <div id="recentOrders" class="orders-list">
-    <!-- script.js が埋める -->
+  <div id="loginModal" class="modal hidden" aria-hidden="true">
+    <div class="modal-content" tabindex="-1">
+      <button type="button" id="loginClose" class="modal-close">×</button>
+      <h3>ログイン</h3>
+      <form id="loginForm">
+        <input id="loginUsername" type="text"     placeholder="ユーザー名" required />
+        <input id="loginPassword" type="password" placeholder="パスワード" required />
+        <button id="loginSubmit" type="submit" class="btn btn-primary">ログイン</button>
+      </form>
+    </div>
   </div>
-  <p id="ordersHint" style="opacity:.7; margin-top:6px;"></p>
-</section>
 
-<!-- auth modals -->
-<div id="registerModal" class="modal hidden" aria-hidden="true">
-  <div class="modal-content" tabindex="-1">
-    <button type="button" id="registerClose" class="modal-close">×</button>
-    <h3>新規登録</h3>
-    <form id="registerForm">
-      <input id="regUsername"  type="text"     placeholder="ユーザー名" required>
-      <input id="regEmail"     type="email"    placeholder="メール（任意）">
-      <input id="regPassword"  type="password" placeholder="パスワード" required>
-      <button id="registerSubmit" type="submit" class="btn btn-primary">登録</button>
-    </form>
-  </div>
-</div>
-<div id="loginModal" class="modal hidden" aria-hidden="true">
-  <div class="modal-content" tabindex="-1">
-    <button type="button" id="loginClose" class="modal-close">×</button>
-    <h3>ログイン</h3>
-    <form id="loginForm">
-      <input id="loginUsername" type="text"     placeholder="ユーザー名" required>
-      <input id="loginPassword" type="password" placeholder="パスワード" required>
-      <button id="loginSubmit" type="submit" class="btn btn-primary">ログイン</button>
-    </form>
-  </div>
-</div>
-
-<script src="./script.js"></script>
-<script src="./js/auth.js" defer></script>
-</body></html>
+  <!-- Script 順序：auth → app（どちらも defer で安定） -->
+  <script src="./js/auth.js" defer></script>
+  <script src="./script.js" defer></script>
+</body>
+</html>

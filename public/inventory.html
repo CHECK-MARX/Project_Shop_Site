@@ -13,29 +13,32 @@
       <a href="./index.html">ホーム</a>
       <a href="./products.html">商品</a>
       <a href="./cart.html">カート <span id="cartCount" class="cart-badge">0</span></a>
-      <a href="./inventory.html" aria-current="page" style="font-weight:700;">在庫管理</a>
+      <a href="./java-vuln.html" style="color:#ffd700;font-weight:bold;">Java脆弱性デモ</a>
       <div class="auth-buttons">
         <button id="loginBtn" class="btn btn-primary">ログイン</button>
         <button id="registerBtn" class="btn btn-secondary">新規登録</button>
         <button id="logoutBtn" class="btn btn-danger" style="display:none;">ログアウト</button>
         <span id="navUser" class="user-pill" hidden></span>
+        <a id="profileLink" href="./profile.html" style="display:none;margin-left:8px;">プロフィール</a>
       </div>
     </div>
   </header>
 
-  <main class="products-section" style="max-width:980px;">
+  <!-- 幅制限は CSS 側で 1280px に拡張済み（インラインは付けない） -->
+  <main class="products-section">
     <h2>在庫管理（管理者専用）</h2>
     <p id="invMsg" style="opacity:.85;"></p>
 
-    <div class="modal-content" style="padding:0;">
-      <table class="table" style="width:100%">
+    <!-- 横スクロール安全ラッパー -->
+    <div class="inv-table-wrap">
+      <table id="invTable" class="table">
         <thead>
           <tr>
             <th style="width:60px;">ID</th>
             <th>商品名</th>
-            <th style="width:120px;">価格</th>
-            <th style="width:100px;">在庫</th>
-            <th style="width:300px;">操作</th>
+            <th style="width:160px;">価格</th>
+            <th style="width:90px;">在庫</th>
+            <th>操作／売れた個数</th>
           </tr>
         </thead>
         <tbody id="invTbody"></tbody>
@@ -43,14 +46,14 @@
     </div>
   </main>
 
-  <!-- 共通（任意で既存の auth/script を流用） -->
+  <!-- 共通 -->
   <script src="./script.js" defer></script>
   <script src="./js/auth.js" defer></script>
 
-  <!-- 在庫管理ページ用 -->
+  <!-- 在庫管理ページ用（あなたが貼ってくれた inventory.js で OK） -->
   <script src="./js/inventory.js" defer></script>
 
-  <!-- 既存のログイン/登録モーダル（他ページと同じブロック） -->
+  <!-- 既存のログイン/登録モーダル -->
   <div id="registerModal" class="modal hidden" aria-hidden="true">
     <div class="modal-content" tabindex="-1">
       <button type="button" id="registerClose" class="modal-close">×</button>

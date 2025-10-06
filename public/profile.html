@@ -28,7 +28,7 @@
   <div class="nav-links">
     <a href="./index.html">ホーム</a>
     <a href="./products.html">商品</a>
-    <a href="./cart.html">カート</a>
+    <a href="./cart.html">カート <span id="cartCount" class="cart-badge">0</span></a>
     <a href="./java-vuln.html" style="color:#ffd700;font-weight:bold;">Java脆弱性デモ</a>
     <a href="./profile.html" aria-current="page" style="font-weight:700">プロフィール</a>
     <div class="auth-buttons">
@@ -53,74 +53,37 @@
   <form id="profileForm" class="card">
     <h3>基本情報</h3>
     <div class="grid two">
-      <label>表示名
-        <input name="display_name" placeholder="例：たろう">
-      </label>
-      <label>氏名（フルネーム）
-        <input name="full_name" placeholder="例：山田 太郎">
-      </label>
-      <label>メール
-        <input name="email" type="email" placeholder="user@example.com">
-      </label>
-      <label>電話番号
-        <input name="phone" placeholder="090-xxxx-xxxx">
-      </label>
-      <label>誕生日
-        <input name="birthday" type="date">
-      </label>
-      <label>Webサイト
-        <input name="website" placeholder="https://example.com">
-      </label>
+      <label>表示名 <input name="display_name" placeholder="例：たろう"></label>
+      <label>氏名（フルネーム） <input name="full_name" placeholder="例：山田 太郎"></label>
+      <label>メール <input name="email" type="email" placeholder="user@example.com"></label>
+      <label>電話番号 <input name="phone" placeholder="090-xxxx-xxxx"></label>
+      <label>誕生日 <input name="birthday" type="date"></label>
+      <label>Webサイト <input name="website" placeholder="https://example.com"></label>
     </div>
 
     <h3 style="margin-top:16px">住所</h3>
     <div class="grid three">
-      <label>国
-        <input name="country" placeholder="Japan">
-      </label>
-      <label>都道府県
-        <input name="state" placeholder="東京都">
-      </label>
-      <label>市区町村
-        <input name="city" placeholder="千代田区">
-      </label>
+      <label>国 <input name="country" placeholder="Japan"></label>
+      <label>都道府県 <input name="state" placeholder="東京都"></label>
+      <label>市区町村 <input name="city" placeholder="千代田区"></label>
     </div>
     <div class="grid two" style="margin-top:12px">
-      <label>住所1
-        <input name="address1" placeholder="丸の内1-1-1">
-      </label>
-      <label>住所2
-        <input name="address2" placeholder="建物名・部屋番号 等">
-      </label>
+      <label>住所1 <input name="address1" placeholder="丸の内1-1-1"></label>
+      <label>住所2 <input name="address2" placeholder="建物名・部屋番号 等"></label>
     </div>
     <div class="grid two" style="margin-top:12px">
-      <label>郵便番号
-        <input name="zip" placeholder="100-0005">
-      </label>
-      <label>タイムゾーン
-        <input name="timezone" placeholder="Asia/Tokyo">
-      </label>
+      <label>郵便番号 <input name="zip" placeholder="100-0005"></label>
+      <label>タイムゾーン <input name="timezone" placeholder="Asia/Tokyo"></label>
     </div>
 
     <h3 style="margin-top:16px">その他</h3>
     <div class="grid">
-      <label>自己紹介
-        <textarea name="bio" placeholder="ひとことどうぞ"></textarea>
-      </label>
-      <label>アバター画像URL
-        <input name="avatar_url" placeholder="https://...">
-      </label>
-      <label>Twitter(X)
-        <input name="twitter" placeholder="@yourid">
-      </label>
-      <label>言語
-        <input name="language" placeholder="ja-JP">
-      </label>
+      <label>自己紹介 <textarea name="bio" placeholder="ひとことどうぞ"></textarea></label>
+      <label>アバター画像URL <input name="avatar_url" placeholder="https://..."></label>
+      <label>Twitter(X) <input name="twitter" placeholder="@yourid"></label>
+      <label>言語 <input name="language" placeholder="ja-JP"></label>
       <label>ニュースレター
-        <select name="newsletter">
-          <option value="0">受け取らない</option>
-          <option value="1">受け取る</option>
-        </select>
+        <select name="newsletter"><option value="0">受け取らない</option><option value="1">受け取る</option></select>
       </label>
     </div>
 
@@ -133,12 +96,8 @@
   <form id="passwordForm" class="card">
     <h3>パスワード変更</h3>
     <div class="grid two">
-      <label>現在のパスワード
-        <input name="current" type="password" required>
-      </label>
-      <label>新しいパスワード
-        <input name="next" type="password" required>
-      </label>
+      <label>現在のパスワード <input name="current" type="password" required></label>
+      <label>新しいパスワード <input name="next" type="password" required></label>
     </div>
     <div class="row" style="margin-top:14px">
       <button class="btn btn-warning" type="submit">パスワードを更新</button>
@@ -148,48 +107,44 @@
 
 <script>
   const $ = s => document.querySelector(s);
-  const token = localStorage.getItem('token');
-
+  function authHeaders(){
+    const t = localStorage.getItem('token') || '';
+    return { 'Content-Type':'application/json', ...(t?{Authorization:'Bearer '+t}:{}) };
+  }
   function setMsg(t, ok=false){ const el=$('#msg'); el.textContent=t; el.className = ok?'ok':'err'; }
   function clearMsg(){ const el=$('#msg'); el.textContent=''; el.className='muted'; }
 
-  function authHeaders(){
-    return { 'Content-Type':'application/json', ...(token?{Authorization:'Bearer '+token}:{}) };
-  }
-
   async function loadProfile(){
     clearMsg();
-    if(!token){ setMsg('未ログインです'); return; }
+    const t = localStorage.getItem('token');
+    if(!t){ setMsg('未ログインです'); return; }
     try{
       const r = await fetch('/api/me', {headers: authHeaders()});
       const d = await r.json();
       if(!r.ok) throw new Error(d.error||r.statusText);
 
-      // header
       $('#headerName').textContent = (d.profile?.display_name || d.user?.username || '-');
       $('#avatarPreview').src = d.profile?.avatar_url || 'https://i.pravatar.cc/72?img=12';
 
-      // fill form
       const f = $('#profileForm');
       Object.entries(d.profile||{}).forEach(([k,v])=>{
-        if (f.elements[k] !== undefined) f.elements[k].value = v ?? '';
+        if (k in f.elements) f.elements[k].value = v ?? '';
       });
-      // email は users テーブル側にもあるので優先
       if (f.elements.email && d.user?.email) f.elements.email.value = d.user.email;
     }catch(e){ setMsg('読み込み失敗: '+e.message); }
   }
 
   $('#profileForm').addEventListener('submit', async (e)=>{
     e.preventDefault(); clearMsg();
+    const t = localStorage.getItem('token');
+    if(!t){ setMsg('未ログインです'); return; }
     const f=e.currentTarget;
     const payload = Object.fromEntries(new FormData(f).entries());
-    if(!token){ setMsg('未ログインです'); return; }
     try{
       const r = await fetch('/api/me', {method:'PUT', headers:authHeaders(), body:JSON.stringify(payload)});
       const d = await r.json();
       if(!r.ok) throw new Error(d.error||r.statusText);
       setMsg('保存しました', true);
-      // アバター/表示名 更新
       $('#headerName').textContent = payload.display_name || $('#headerName').textContent;
       if(payload.avatar_url) $('#avatarPreview').src = payload.avatar_url;
     }catch(e){ setMsg('保存失敗: '+e.message); }
@@ -208,14 +163,15 @@
         body:JSON.stringify({ current:cur, next })
       });
       const d = await r.json();
-      if(!r.ok) throw new Error(d.error||r.statusText);
+      if(!r.ok) throw new Error(d.error||d.message||r.statusText);
       setMsg('パスワードを更新しました', true);
       e.currentTarget.reset();
     }catch(e){ setMsg('更新失敗: '+e.message); }
   });
 
   $('#logoutBtn').addEventListener('click', ()=>{
-    localStorage.removeItem('token'); localStorage.removeItem('user');
+    localStorage.removeItem('token');
+    localStorage.removeItem('auth_user');   // ← こっちが正
     location.href = './index.html';
   });
 

@@ -151,10 +151,10 @@
     // === ナビは script.js に任せる（重複防止） ===
     if (typeof window.updateAdminNav === 'function') window.updateAdminNav();
 
-    // 念のため重複があれば除去（href ベース）
+    // 念のため重複があれば除去（href ベース / このページだけ）
     const dedupe = (selector) => {
-      const a = Array.from(document.querySelectorAll(selector));
-      a.slice(1).forEach(el => el.remove());
+      const list = Array.from(document.querySelectorAll(selector));
+      list.slice(1).forEach(el => el.remove());
     };
     dedupe('.nav-links a[href$="inventory.html"]');
     dedupe('.nav-links a[href$="admin.html"]');

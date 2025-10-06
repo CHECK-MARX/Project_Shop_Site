@@ -1,22 +1,18 @@
-/* script.js — 商品一覧 / カート（ユーザー別・旧HTML互換/多重読込OK） */
+/* script.js — 商品一覧 / カート / ナビ / ホームウィジェット（公開ベストセラー対応・在庫連動） */
 (() => {
   'use strict';
-
-  /* ==== duplicate-load guard ==== */
   if (window.__APP_CORE_LOADED__) return;
   window.__APP_CORE_LOADED__ = true;
 
-  /* ==== ローカルヘルパ（他ファイルと衝突しない） ==== */
+  // ---- helpers
   const $  = (s, r=document) => r.querySelector(s);
   const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
   const fmtJPY = n => `¥${Math.round(Number(n||0)).toLocaleString('ja-JP')}`;
-
-  // 他ファイルが参照する場合のために一度だけ公開
   window.$ = window.$ || $;
   window.$$ = window.$$ || $$;
   window.fmtJPY = window.fmtJPY || fmtJPY;
 
-  /* ===== Auth ブリッジ（auth.js が無ければ最小実装） ===== */
+  // ---- Auth bridge (fallback)
   const FallbackAuth = {
     getToken(){ return localStorage.getItem('token') || ''; },
     getUser(){ try{ const raw = localStorage.getItem('auth_user'); return raw?JSON.parse(raw):null; }catch{ return null; } },
@@ -28,13 +24,13 @@
   };
   const Auth = (window.Auth ?? FallbackAuth);
 
-  /* ===== カート（ユーザー別保存） ===== */
+  // ---- cart
   function cartKey(){ const u = Auth.getUser?.(); return `cart:${u?.username || 'guest'}`; }
   function getCart(){ try{ return JSON.parse(localStorage.getItem(cartKey())||'[]'); }catch{ return []; } }
   function setCart(list){
     localStorage.setItem(cartKey(), JSON.stringify(list));
     updateCartBadge();
-    renderCartPage(); // 表示更新
+    renderCartPage();
   }
   function updateCartBadge(){
     const badge = $('#cartCount'); if (!badge) return;
@@ -58,16 +54,56 @@
     }catch{}
   }
 
-  /* ===== API ===== */
-  async function apiGet(p){ const r = await fetch(p); if(!r.ok) throw new Error(r.status); return r.json(); }
+  /* === AuthのUI反映（プロフィールリンク表示） === */
+  function updateAuthUI(){
+    const isIn   = !!(Auth.isLoggedIn?.());
+    const user   = (Auth.getUser?.()) || null;
+
+    const login  = document.getElementById('loginBtn');
+    const reg    = document.getElementById('registerBtn');
+    const logout = document.getElementById('logoutBtn');
+    const pill   = document.getElementById('navUser');
+    const prof   = document.getElementById('profileLink');
+
+    if (login)  login.style.display  = isIn ? 'none'  : '';
+    if (reg)    reg.style.display    = isIn ? 'none'  : '';
+    if (logout) logout.style.display = isIn ? ''      : 'none';
+    if (prof)   prof.style.display   = isIn ? ''      : 'none';
+
+    if (pill) {
+      if (isIn && user?.username) { pill.textContent = user.username; pill.hidden = false; }
+      else { pill.hidden = true; pill.textContent = ''; }
+    }
+  }
+  document.addEventListener('DOMContentLoaded', updateAuthUI);
+  window.addEventListener('storage', (e)=>{ if (e.key === 'token' || e.key === 'auth_user') updateAuthUI(); });
+  window.addEventListener('auth:changed', updateAuthUI);
+  document.getElementById('logoutBtn')?.addEventListener('click', ()=>{
+    localStorage.removeItem('token');
+    localStorage.removeItem('auth_user');
+    updateAuthUI();
+    location.href = './index.html';
+  });
+
+  // ---- 在庫連動ヘルパ
+  function cartQtyOf(productId){
+    return getCart().reduce((s,i)=> s + (i.productId===productId ? (Number(i.qty)||0) : 0), 0);
+  }
+  function canAddOne(product){
+    const stock = Number(product.stock||0);
+    if (!Number.isFinite(stock) || stock<=0) return false;
+    return cartQtyOf(product.id) < stock;
+  }
+
+  // ---- API
+  async function apiGet(url){ const r = await fetch(url); if(!r.ok) throw new Error(r.status); return r.json(); }
   async function apiAuthGet(url){
     const t = (Auth.getToken?.() || '').trim();
     const r = await fetch(url, { headers: { ...(t ? {Authorization:`Bearer ${t}`} : {}) }});
-    if(!r.ok) throw new Error(`HTTP ${r.status}`);
-    return r.json();
+    if(!r.ok) throw new Error(`HTTP ${r.status}`); return r.json();
   }
 
-  /* ===== 商品一覧 ===== */
+  // ---- products grid（在庫連動）
   async function loadProducts(search=""){
     try{
       const qs = search ? `?search=${encodeURIComponent(search)}` : '';
@@ -80,7 +116,11 @@
       }
 
       grid.innerHTML = items.map(p=>`
-        <div class="product-card" data-id="${p.id}" data-name="${p.name}" data-price="${Math.round(Number(p.price)||0)}">
+        <div class="product-card"
+             data-id="${p.id}"
+             data-name="${p.name}"
+             data-price="${Math.round(Number(p.price)||0)}"
+             data-stock="${Number(p.stock||0)}">
           <img class="product-img" src="${p.image_path || `https://picsum.photos/seed/p${p.id}/800/500`}" alt="${p.name}">
           <h3>${p.name}</h3>
           <p>${p.description || ''}</p>
@@ -90,13 +130,25 @@
         </div>
       `).join('');
 
+      // 初期状態：在庫0/上限到達なら無効化
+      $$('.product-card', grid).forEach(card=>{
+        const pid = Number(card.dataset.id);
+        const stock = Number(card.dataset.stock)||0;
+        const btn = $('.add-to-cart', card);
+        if (!btn) return;
+        if (stock<=0){ btn.disabled = true; btn.textContent = '在庫なし'; }
+        else if (cartQtyOf(pid) >= stock){ btn.disabled = true; btn.textContent = '在庫上限'; }
+      });
+
+      // クリックで在庫チェックしつつ追加
       $$('.add-to-cart', grid).forEach(btn=>{
         btn.addEventListener('click', e=>{
           const card = e.currentTarget.closest('.product-card');
           const product = {
             id: Number(card.dataset.id),
             name: card.dataset.name,
-            price: Number(card.dataset.price)||0
+            price: Number(card.dataset.price)||0,
+            stock: Number(card.dataset.stock)||0
           };
 
           if (!Auth.isLoggedIn?.()){
@@ -104,12 +156,27 @@
             Auth.openLogin?.();
             return;
           }
+
+          // 在庫上限UIチェック
+          if (!canAddOne(product)){
+            e.currentTarget.disabled = true;
+            e.currentTarget.textContent = product.stock<=0 ? '在庫なし' : '在庫上限';
+            toast('在庫数を超えています');
+            return;
+          }
+
           const list = getCart();
           const i = list.findIndex(x=>x.productId===product.id);
-          if (i>=0) list[i].qty = (list[i].qty||0) + 1;
+          if (i>=0) list[i].qty = Math.min(product.stock, (list[i].qty||0) + 1);
           else list.push({ productId:product.id, name:product.name, price:product.price, qty:1 });
           setCart(list);
           toast('カートに追加しました');
+
+          // 追加後ボタン更新
+          if (!canAddOne(product)){
+            e.currentTarget.disabled = true;
+            e.currentTarget.textContent = '在庫上限';
+          }
         });
       });
     }catch(e){
@@ -120,7 +187,7 @@
   }
   window.loadProducts = window.loadProducts || loadProducts;
 
-  /* ===== カート描画（#cartItems なければ #items 互換） ===== */
+  // ---- cart page
   function cartContainer(){ return $('#cartItems') || $('#items') || null; }
   function renderCartPage(){
     const wrap = cartContainer();
@@ -152,11 +219,24 @@
         const list = getCart(); const it = list.find(x=>x.productId===id); if(!it) return;
         it.qty = Math.max(1,(it.qty||1)-1); setCart(list);
       }));
-      $$('.qty-btn.plus', wrap).forEach(b=>b.addEventListener('click',e=>{
+
+      // ＋は在庫上限で止める（可能なら最新在庫を取得）
+      $$('.qty-btn.plus', wrap).forEach(b=>b.addEventListener('click',async e=>{
         const id = Number(e.currentTarget.dataset.id);
-        const list = getCart(); const it = list.find(x=>x.productId===id); if(!it) return;
-        it.qty = (it.qty||1)+1; setCart(list);
+        try{
+          const p = await apiGet(`/api/product/${id}`);
+          const stock = Number(p.stock||0);
+          const list = getCart(); const it = list.find(x=>x.productId===id); if(!it) return;
+          const cur = Number(it.qty||1);
+          if (cur >= stock){ toast('在庫数を超えています'); return; }
+          it.qty = cur + 1; setCart(list);
+        }catch{
+          // フォールバック（サーバ取得失敗時）：暴走防止のみ
+          const list = getCart(); const it = list.find(x=>x.productId===id); if(!it) return;
+          it.qty = Math.min(999, (it.qty||1)+1); setCart(list);
+        }
       }));
+
       $$('[data-del]', wrap).forEach(b=>b.addEventListener('click',e=>{
         const id = Number(e.currentTarget.getAttribute('data-del'));
         const list = getCart().filter(i=>i.productId!==id); setCart(list);
@@ -165,7 +245,7 @@
     if (totalEl) totalEl.textContent = fmtJPY(total);
   }
 
-  /* ===== 検索 ===== */
+  // ---- search
   function wireSearch(){
     const input = $('#searchInput'); const btn = $('#searchBtn'); if(!input||!btn) return;
     const exec = ()=>{
@@ -177,16 +257,16 @@
     input.addEventListener('keydown', e=>{ if (e.key === 'Enter') exec(); });
   }
 
-  /* ===== トースト ===== */
+  // ---- toast
   function toast(msg){
     let t = $('#toaster'); if(!t){ t=document.createElement('div'); t.id='toaster'; document.body.appendChild(t); }
     const n = document.createElement('div'); n.textContent = msg; t.appendChild(n);
     setTimeout(()=>{ n.remove(); }, 1500);
   }
-  window.toast = window.toast || toast;         // 既存があれば再代入しない
+  window.toast = window.toast || toast;
   window.updateCartBadge = window.updateCartBadge || updateCartBadge;
 
-  /* ===== 管理者専用ナビリンク（在庫管理 / 管理ダッシュボード） ===== */
+  // ---- Safe admin nav (inventory/admin)
   async function fetchMe() {
     const t = Auth.getToken?.() || '';
     if (!t) return null;
@@ -200,7 +280,6 @@
   function renderAdminLinks(isAdmin) {
     const nav = document.querySelector('.nav-links');
     if (!nav) return;
-    // 重複回避
     document.getElementById('navInventory')?.remove();
     document.getElementById('navAdmin')?.remove();
     if (!isAdmin) return;
@@ -217,26 +296,77 @@
     adm.href = './admin.html';
     adm.textContent = '管理ダッシュボード';
 
-    if (authBtns) {
-      nav.insertBefore(adm, authBtns);
-      nav.insertBefore(inv, authBtns);
-    } else {
-      nav.appendChild(adm);
-      nav.appendChild(inv);
-    }
+    if (authBtns) { nav.insertBefore(adm, authBtns); nav.insertBefore(inv, authBtns); }
+    else { nav.appendChild(adm); nav.appendChild(inv); }
   }
   async function updateAdminNav() {
     const me = await fetchMe();
     renderAdminLinks(!!me && me.role === 'admin');
   }
+  window.updateAdminNav = window.updateAdminNav || updateAdminNav;
 
-  /* ===== 最近の注文をホームに描画 ===== */
+  // === 売れ筋ランキング（公開API優先 → 管理APIにフォールバック） ===
+  async function loadBestsellers(limit = 10) {
+    const wrap = document.getElementById('bestWrap');
+    const box  = document.getElementById('bestList');
+    if (!wrap || !box) return;
+
+    box.innerHTML = '';
+
+    async function fetchPublic() {
+      const r = await fetch(`/api/bestsellers?limit=${encodeURIComponent(limit)}`);
+      if (!r.ok) throw new Error(`public ${r.status}`);
+      return r.json();
+    }
+    async function fetchAdmin() {
+      const t = (Auth.getToken?.() || '').trim();
+      if (!t) throw new Error('no token');
+      const r = await fetch('/api/admin/sales-summary', { headers: { Authorization: `Bearer ${t}` } });
+      if (!r.ok) throw new Error(`admin ${r.status}`);
+      const sales = await r.json();
+      const products = await apiGet('/api/products').catch(() => []);
+      const pmap = new Map(products.map(p => [Number(p.id), p]));
+      return sales
+        .map(s => {
+          const p = pmap.get(Number(s.product_id));
+          return p ? { ...p, sold: Number(s.sold) || 0 } : null;
+        })
+        .filter(Boolean)
+        .sort((a, b) => (b.sold || 0) - (a.sold || 0))
+        .slice(0, limit);
+    }
+
+    try {
+      let data = [];
+      try { data = await fetchPublic(); } catch { data = await fetchAdmin(); }
+      if (!data || !data.length) { wrap.style.display = 'none'; return; }
+
+      box.innerHTML = data.map((p, i) => {
+        const img = p.image_path || `https://picsum.photos/seed/p${p.id}/600/380`;
+        const sold = (p.sold ?? 0).toLocaleString('ja-JP');
+        const stock = Number(p.stock || 0);
+        return `
+          <a class="best-card" href="./products.html?q=${encodeURIComponent(p.name)}" style="position:relative;">
+            <span class="best-rank">${i + 1}</span>
+            <img src="${img}" alt="${p.name}">
+            <div class="best-name">${p.name}</div>
+            <div class="best-meta">売れた: <b>${sold}</b> ｜ 在庫: ${stock}</div>
+          </a>`;
+      }).join('');
+      wrap.style.display = '';
+    } catch (e) {
+      console.error('bestsellers:', e);
+      wrap.style.display = 'none';
+    }
+  }
+  window.loadBestsellers = loadBestsellers;
+
+  // ---- 最近の注文（ホーム）
   async function loadRecentOrders(){
     const box  = document.getElementById('recentOrders');
     const hint = document.getElementById('ordersHint');
     if (!box) return;
 
-    // 未ログインなら案内だけ
     if (!(Auth.isLoggedIn?.())) {
       box.innerHTML = `<div class="alert alert-info">ログインすると最近の注文が表示されます。</div>`;
       if (hint) hint.textContent = '';
@@ -274,7 +404,7 @@
     }
   }
 
-  /* ===== 初期化 ===== */
+  // ---- init
   document.addEventListener('DOMContentLoaded', ()=>{
     clearGuestCartOnLogin();
     updateCartBadge();
@@ -284,21 +414,23 @@
     if (cartContainer() || $('#cartTotal') || $('#total')) renderCartPage();
     wireSearch();
 
-    // 管理者リンク
     updateAdminNav();
-
-    // ホームに「最近の注文」
     loadRecentOrders();
-
-    // 他タブ同期
-    window.addEventListener('storage', ev=>{
-      if (ev.key && ev.key.startsWith('cart:')) { updateCartBadge(); renderCartPage(); }
-      if (ev.key === 'auth_user' || ev.key === 'token') { clearGuestCartOnLogin(); updateCartBadge(); renderCartPage(); updateAdminNav(); }
-    });
-    // タブ復帰でも反映
-    window.addEventListener('focus', ()=> { updateAdminNav(); });
-    // 既存コードがカスタムイベントを投げる場合に備える
-    window.addEventListener('auth:changed', ()=> { updateAdminNav(); });
+    loadBestsellers(10);
   });
+
+  // 他タブ同期・権限変化
+  window.addEventListener('storage', ev=>{
+    if (ev.key && ev.key.startsWith('cart:')) {
+      updateCartBadge(); renderCartPage();
+      if ($('#productsGrid')) { // 商品一覧なら表示更新（上限ボタン反映）
+        const q = new URLSearchParams(location.search).get('q') || '';
+        loadProducts(q);
+      }
+    }
+    if (ev.key === 'auth_user' || ev.key === 'token') { clearGuestCartOnLogin(); updateCartBadge(); renderCartPage(); updateAdminNav(); }
+  });
+  window.addEventListener('focus', ()=> { updateAdminNav(); });
+  window.addEventListener('auth:changed', ()=> { updateAdminNav(); });
 
 })();
