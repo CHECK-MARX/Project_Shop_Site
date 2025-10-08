@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>売上履歴 - Vulnerable Shop</title>
+  <link rel="stylesheet" href="./styles.css"/>
+  <style>
+    .page-wrap{max-width:1100px;margin:24px auto;padding:0 16px}
+    .card{background:#0f1b31;border:1px solid #27334d;border-radius:12px;padding:16px}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:10px;border-bottom:1px solid #24314a}
+    th{text-align:left;opacity:.9}
+    .muted{opacity:.8}
+    .pill{display:inline-block;padding:.1em .6em;border-radius:9999px;background:#0b1426;border:1px solid #2c3a59}
+  </style>
+</head>
+<body>
+<header class="navbar">
+  <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
+  <div class="nav-links">
+    <a href="./index.html">ホーム</a>
+    <a href="./products.html">商品</a>
+    <a href="./cart.html">カート</a>
+    <a href="./java-vuln.html" style="color:#ffd700;font-weight:bold;">Java脆弱性デモ</a>
+    <a href="./sales.html" aria-current="page" style="font-weight:700">売上履歴</a>
+    <div class="auth-buttons">
+      <button id="logoutBtn" class="btn btn-danger">ログアウト</button>
+    </div>
+  </div>
+</header>
+
+<main class="page-wrap">
+  <h2>売上履歴 <span id="filterHint" class="pill muted"></span></h2>
+  <div class="card" style="margin-top:12px">
+    <div id="msg" class="muted" style="margin-bottom:10px;"></div>
+    <div style="overflow:auto">
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th style="width:180px">日時</th>
+            <th>注文ID</th>
+            <th>商品</th>
+            <th style="width:120px">単価</th>
+            <th style="width:80px">数量</th>
+            <th style="width:120px">小計</th>
+            <th style="width:140px">購入者</th>
+          </tr>
+        </thead>
+        <tbody id="rows"><tr><td colspan="7" class="muted">読み込み中...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const token = localStorage.getItem('token') || '';
+
+function fmtJPY(n){ return '¥' + Math.round(Number(n||0)).toLocaleString('ja-JP'); }
+function setMsg(t, ok=false){ const el=$('#msg'); el.textContent=t||''; el.className = ok?'ok':'muted'; }
+
+async function load(){
+  if(!token){ setMsg('未ログイン、または権限がありません（管理者のみ）'); $('#rows').innerHTML='<tr><td colspan="7">権限がありません</td></tr>'; return; }
+
+  const pid = new URLSearchParams(location.search).get('product');
+  if (pid) $('#filterHint').textContent = `product=${pid}`;
+  else $('#filterHint').textContent = '全体';
+
+  try{
+    const url = `/api/admin/sales-events${pid ? ('?product='+encodeURIComponent(pid)) : ''}`;
+    const r = await fetch(url, { headers: { Authorization: 'Bearer '+token }});
+    const list = await r.json();
+    if(!r.ok) throw new Error(list && list.error || r.statusText);
+
+    if (!Array.isArray(list) || list.length===0){
+      $('#rows').innerHTML = `<tr><td colspan="7" class="muted">データがありません</td></tr>`;
+      return;
+    }
+    $('#rows').innerHTML = list.map(x=>{
+      const dt = new Date(x.created_at || Date.now());
+      const when = `${dt.getFullYear()}/${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+      return `<tr>
+        <td>${when}</td>
+        <td style="font-family:monospace">${x.orderId}</td>
+        <td><a href="./sales.html?product=${encodeURIComponent(x.productId)}">${x.productName||'(no name)'} <span class="pill muted">#${x.productId}</span></a></td>
+        <td>${fmtJPY(x.unitPrice)}</td>
+        <td>${x.qty}</td>
+        <td>${fmtJPY(x.subTotal)}</td>
+        <td>${x.buyer || ''}</td>
+      </tr>`;
+    }).join('');
+    setMsg(`合計 ${list.length} 件を表示`);
+  }catch(e){
+    console.error(e);
+    setMsg('取得に失敗しました: '+e.message);
+    $('#rows').innerHTML = `<tr><td colspan="7">エラー</td></tr>`;
+  }
+}
+
+$('#logoutBtn')?.addEventListener('click', ()=>{
+  localStorage.removeItem('token'); localStorage.removeItem('auth_user'); location.href='./index.html';
+});
+load();
+</script>
+</body>
+</html>

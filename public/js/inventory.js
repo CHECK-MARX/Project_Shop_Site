@@ -1,129 +1,199 @@
-// public/js/inventory.js — 在庫管理（横並び・編集保存 + 売れた個数の表示）
 (() => {
-  if (window.__INV_PAGE_WIRED__) return; window.__INV_PAGE_WIRED__ = true;
+  'use strict';
+// === 認証/管理者チェック（inventory.js の先頭付近に置く） ===
+async function fetchMe() {
+  const t = localStorage.getItem('token') || '';
+  if (!t) return null;
+  try {
+    const r = await fetch('/api/me', { headers: { Authorization: 'Bearer ' + t } });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch { return null; }
+}
 
+async function ensureAdmin() {
+  const msg = document.getElementById('invMsg');
+  const me = await fetchMe();
+  if (!me || !me.user) {
+    if (msg) msg.textContent = '認証が切れました。ログインし直してください。';
+    return false;
+  }
+  if (me.user.role !== 'admin') {
+    if (msg) msg.textContent = 'このページは管理者専用です。';
+    return false;
+  }
+  if (msg) msg.textContent = ''; // OK
+  return true;
+}
+
+// 既存の DOMContentLoaded 初期化をこれでラップ
+document.addEventListener('DOMContentLoaded', async () => {
+  const ok = await ensureAdmin();
+  if (!ok) return;           // ここで止める（無限にAPI叩かない）
+  // 以降、既存の loadAll() や描画処理を呼ぶ
+  try { typeof loadAll === 'function' && loadAll(); } catch {}
+});
+
+  // helpers
   const $  = (s, r=document) => r.querySelector(s);
   const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
-  const token = () => (window.Auth?.getToken?.() || localStorage.getItem('token') || '').trim();
+  const fmtJPY = n => `¥${Math.round(Number(n||0)).toLocaleString('ja-JP')}`;
 
-  function toast(msg){
-    let host = $('#toaster'); if(!host){ host=document.createElement('div'); host.id='toaster';
-      host.style.cssText='position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:9999;display:grid;gap:8px;';
-      document.body.appendChild(host);
+  // simple Auth bridge
+  const Auth = {
+    token(){ return localStorage.getItem('token') || ''; },
+    async me(){
+      const t = this.token();
+      if (!t) return null;
+      try{
+        const r = await fetch('/api/me', { headers:{ Authorization:`Bearer ${t}` }});
+        if (!r.ok) return null;
+        return (await r.json())?.user ?? null;
+      }catch{ return null; }
     }
-    const n = document.createElement('div');
-    n.textContent = msg;
-    n.style.cssText = 'padding:8px 12px;border-radius:10px;border:1px solid #2b3a5a;background:#0f1729;color:#e9edf6;box-shadow:0 8px 30px rgba(0,0,0,.35);font-weight:600;';
-    host.appendChild(n); setTimeout(()=>n.remove(), 1300);
-  }
+  };
 
-  async function api(path, opt={}){
-    const r = await fetch(path, {
-      ...opt,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token() ? { Authorization: `Bearer ${token()}` } : {}),
-        ...(opt.headers || {})
-      }
+  async function apiAuthGet(url){
+    const r = await fetch(url, { headers:{ Authorization:`Bearer ${Auth.token()}` }});
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  }
+  async function apiAuthJSON(url, method, body){
+    const r = await fetch(url, {
+      method,
+      headers:{
+        'Content-Type':'application/json',
+        Authorization:`Bearer ${Auth.token()}`
+      },
+      body: JSON.stringify(body||{})
     });
-    const b = await r.json().catch(()=> ({}));
-    if (!r.ok) throw new Error(b.error || r.status);
-    return b;
+    const d = await r.json().catch(()=> ({}));
+    if (!r.ok) throw new Error(d?.error || `HTTP ${r.status}`);
+    return d;
   }
 
-  // 1行HTML（sold は表示のみ・操作なし）
-  function rowHTML(p, soldMap){
-    const id    = Number(p.id);
-    const name  = String(p.name || '');
-    const price = Math.round(Number(p.price) || 0);
-    const stock = Math.max(0, Number(p.stock) || 0);
-    const sold  = Math.max(0, Number(soldMap.get(id) || 0));
-    return `
-      <tr data-id="${id}">
-        <td style="text-align:right;">${id}</td>
-        <td><input class="inv-input inv-name" type="text" value="${name.replace(/"/g,'&quot;')}"></td>
-        <td>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span style="opacity:.8">¥</span>
-            <input class="inv-input inv-price" type="number" min="0" step="1" value="${price}">
-          </div>
-        </td>
-        <td><span class="inv-stock">${stock}</span></td>
-        <td class="inv-ops">
-          <div class="btn-group">
-            <button class="btn btn-secondary btn-sm op-plus" data-val="1">+1</button>
-            <button class="btn btn-secondary btn-sm op-plus" data-val="5">+5</button>
-            <button class="btn btn-secondary btn-sm op-plus" data-val="10">+10</button>
-          </div>
-          <input class="inv-input inv-add" type="number" step="1" value="0" title="追加数">
-          <button class="btn btn-success btn-sm op-add">追加</button>
-          <button class="btn btn-primary btn-sm op-save">保存</button>
-          <span class="inv-sold" title="過去の決済の累計個数">売れた: <b>${sold}</b></span>
-        </td>
-      </tr>
-    `;
+  // UI
+  const tbody  = document.getElementById('invBody') || document.querySelector('tbody');
+  const msgTop = document.getElementById('invMsg') || (()=>{ const m=document.createElement('div'); m.id='invMsg'; m.style.margin='8px 0'; (tbody?.parentElement||document.body).prepend(m); return m; })();
+
+  function toast(text, ok=false){
+    msgTop.textContent = text;
+    msgTop.style.color = ok ? '#69f0ae' : '#ff6b6b';
+    setTimeout(()=>{ msgTop.textContent=''; }, 2500);
   }
 
-  // tbody を用意（inventory.html の #invTbody に書き込む）
-  function tbodyEl(){ return $('#invTbody'); }
+  // main loader
+  async function loadAll(){
+    const me = await Auth.me();
+    if (!me || me.role !== 'admin'){
+      if (tbody) tbody.innerHTML = `<tr><td colspan="99" style="padding:16px">管理者としてログインしてください。</td></tr>`;
+      return;
+    }
 
-  async function load(){
-    const body = tbodyEl(); if (!body) return;
+    let products = [];
+    let soldMap  = new Map();
     try{
-      // 商品一覧と売上集計を同時取得
-      const [prods, sales] = await Promise.all([
-        api('/api/products'),
-        api('/api/admin/sales-summary').catch(()=>[])
+      const [p, sales] = await Promise.all([
+        fetch('/api/products').then(r=>r.json()),
+        apiAuthGet('/api/admin/sales-summary').catch(()=> [])
       ]);
-      const soldMap = new Map((sales||[]).map(x => [Number(x.product_id), Number(x.sold)||0]));
-      body.innerHTML = prods.map(p => rowHTML(p, soldMap)).join('');
+      products = Array.isArray(p) ? p : [];
+      if (Array.isArray(sales)){
+        for (const s of sales){
+          const pid  = Number(s.product_id);
+          const sold = Math.max(0, Number(s.sold)||0);
+          soldMap.set(pid, sold);
+        }
+      }
     }catch(e){
       console.error(e);
-      body.innerHTML = `<tr><td colspan="5" style="color:#ff8a8a">在庫一覧の取得に失敗しました</td></tr>`;
+      toast('在庫情報の読み込みに失敗しました');
+      products = [];
+      soldMap  = new Map();
     }
+
+    if (!tbody) return;
+    if (!products.length){
+      tbody.innerHTML = `<tr><td colspan="99" style="padding:16px">商品がありません。</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = products.map(p=>{
+      const id    = Number(p.id);
+      const name  = p.name ?? '';
+      const price = Math.round(Number(p.price)||0);
+      const stock = Math.max(0, Number(p.stock)||0);
+      const sold  = soldMap.get(id) ?? 0;
+
+      return `
+      <tr data-id="${id}">
+        <td>${id}</td>
+        <td><input class="num-in name-in"  data-k="name"  value="${String(name).replace(/"/g,'&quot;')}" style="width:100%"></td>
+        <td><input class="num-in price-in" data-k="price" type="number" step="1" value="${price}"></td>
+        <td class="stock">${stock}</td>
+        <td class="ctrls">
+          <div class="btn-row">
+            <button class="mini add-1"  type="button">+1</button>
+            <button class="mini add-5"  type="button">+5</button>
+            <button class="mini add-10" type="button">+10</button>
+          </div>
+          <div class="sold-wrap">売れた: <b class="sold-val">${sold.toLocaleString('ja-JP')}</b></div>
+          <button class="btn save" type="button">保存</button>
+        </td>
+        <td><input class="num-in add-in" type="number" value="0" placeholder="0"></td>
+        <td><button class="btn do-add" type="button">追加</button></td>
+      </tr>`;
+    }).join('');
+
+    // events
+    $$('#invBody tr', document).forEach(tr=>{
+      const id      = Number(tr.getAttribute('data-id'));
+      const nameIn  = tr.querySelector('.name-in');
+      const priceIn = tr.querySelector('.price-in');
+      const addIn   = tr.querySelector('.add-in');
+
+      tr.querySelector('.add-1') ?.addEventListener('click', ()=>{ addIn.value = String((Number(addIn.value)||0) + 1 ); });
+      tr.querySelector('.add-5') ?.addEventListener('click', ()=>{ addIn.value = String((Number(addIn.value)||0) + 5 ); });
+      tr.querySelector('.add-10')?.addEventListener('click', ()=>{ addIn.value = String((Number(addIn.value)||0) +10 ); });
+
+      tr.querySelector('.save')?.addEventListener('click', async ()=>{
+        const payload = {};
+        const newName  = String(nameIn.value||'').trim();
+        const newPrice = Math.round(Number(priceIn.value)||0);
+        if (newName !== '')  payload.name  = newName;
+        if (Number.isFinite(newPrice)) payload.price = newPrice;
+        if (!Object.keys(payload).length){ toast('変更がありません'); return; }
+
+        try{
+          await apiAuthJSON(`/api/admin/products/${id}`, 'PUT', payload);
+          toast('保存しました', true);
+          await loadAll();
+        }catch(e){
+          console.error(e);
+          toast('保存に失敗しました');
+        }
+      });
+
+      tr.querySelector('.do-add')?.addEventListener('click', async ()=>{
+        let add = Math.round(Number(addIn.value));
+        if (!Number.isFinite(add) || add === 0){ toast('数量を入力してください'); return; }
+        try{
+          const d = await apiAuthJSON(`/api/admin/products/${id}/stock/add`, 'POST', { add });
+          tr.querySelector('.stock').textContent = String(Math.max(0, Number(d.stock)||0));
+          addIn.value = '0';
+          toast('在庫を更新しました', true);
+        }catch(e){
+          console.error(e);
+          toast('在庫更新に失敗しました');
+        }
+      });
+    });
   }
 
-  // 操作（+ / 追加 / 保存）
-  document.addEventListener('click', async (ev)=>{
-    const tr = ev.target.closest('tr[data-id]'); if (!tr) return;
-    const id = Number(tr.dataset.id);
-
-    // +1/+5/+10
-    const plus = ev.target.closest('.op-plus');
-    if (plus){
-      const add = tr.querySelector('.inv-add');
-      add.value = String((Math.round(Number(add.value)||0)) + Math.round(Number(plus.dataset.val)||0));
-      return;
-    }
-
-    // 在庫追加
-    const addBtn = ev.target.closest('.op-add');
-    if (addBtn){
-      let add = Math.round(Number(tr.querySelector('.inv-add')?.value)||0);
-      if (add <= 0) { toast('追加数は1以上を入力'); return; }
-      try{
-        await api(`/api/admin/products/${id}/stock/add`, { method:'POST', body: JSON.stringify({ add }) });
-        toast('在庫を更新しました');
-        await load();
-      }catch(e){ alert('在庫更新に失敗: '+e.message); }
-      return;
-    }
-
-    // 名前・価格の保存
-    const saveBtn = ev.target.closest('.op-save');
-    if (saveBtn){
-      const name  = String(tr.querySelector('.inv-name')?.value || '').trim();
-      let price   = Math.round(Number(tr.querySelector('.inv-price')?.value)||0);
-      if (!name)  { toast('商品名を入力してください'); return; }
-      if (price < 0 || !Number.isFinite(price)) price = 0;
-      try{
-        await api(`/api/admin/products/${id}`, { method:'PUT', body: JSON.stringify({ name, price }) });
-        toast('商品情報を更新しました');
-        await load();
-      }catch(e){ alert('保存に失敗: '+e.message); }
-      return;
-    }
+  // init
+  document.addEventListener('DOMContentLoaded', ()=>{
+    const btn = document.getElementById('btnSalesHistory');
+    if (btn) btn.addEventListener('click', ()=>{ location.href = './sales-history.html'; });
+    loadAll();
   });
-
-  document.addEventListener('DOMContentLoaded', load);
 })();

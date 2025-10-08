@@ -338,7 +338,7 @@ app.delete('/api/admin/backup/:filename', requireAdmin, async (req,res)=>{
   }catch(e){ res.status(e && e.code==='ENOENT' ? 404 : 500).json({ ok:false }); }
 });
 
-// ====== 決済（在庫連動・スキーマ自動適応） ======
+// ====== 決済（在庫連動・スキーマ自動適応）
 app.post('/api/checkout', requireAuth, async (req, res) => {
   try {
     const { items, cardLast4, name } = req.body || {};
@@ -455,7 +455,7 @@ app.post('/api/checkout', requireAuth, async (req, res) => {
       });
     });
 
-    // ← 常に文字の注文IDを返す（orders にコード列が無い DB でも OK）
+    // 常に文字の注文IDを返す（orders にコード列が無い DB でも OK）
     const returnId = (has('order_id') || has('order_code')) ? orderCode : String(txResult.internalId);
 
     res.json({ ok:true, orderId: returnId, subtotal, tax, total, last4 });
@@ -572,7 +572,7 @@ app.get('/api/orders/:orderId', requireAuth, async (req, res) => {
   }
 });
 
-// === 管理: 売上集計（qty/quantity どちらでもOK） ===
+// === 管理: 売上集計（qty/quantity どちらでもOK）
 app.get('/api/admin/sales-summary', requireAdmin, async (_req, res) => {
   const candidates = [
     `SELECT product_id, SUM(qty) AS sold FROM order_items GROUP BY product_id`,
@@ -590,7 +590,84 @@ app.get('/api/admin/sales-summary', requireAdmin, async (_req, res) => {
   }catch(e){ console.error('sales-summary', e); res.status(500).json({ error:'db' }); }
 });
 
-// === 公開: ベストセラー Top N（未ログインOK／スキーマ差異対応） ===
+// === 管理: 売上履歴（時系列・購入者つき・スキーマ差異対応） ===
+app.get('/api/admin/sales-events', requireAdmin, async (req, res) => {
+  try {
+    const productId = Number(req.query.product_id || req.query.product || 0) || null;
+    const limit  = Math.max(1, Math.min(500, parseInt(req.query.limit || '200', 10)));
+    const offset = Math.max(0, parseInt(req.query.offset || '0', 10));
+
+    const oCols = await dbAll(`PRAGMA table_info('orders')`);
+    const iCols = await dbAll(`PRAGMA table_info('order_items')`);
+    const oNames = new Set(oCols.map(c => c.name));
+    const iNames = new Set(iCols.map(c => c.name));
+
+    const hasOrderId   = oNames.has('order_id');
+    const hasOrderCode = oNames.has('order_code');
+    const hasCreatedAt = oNames.has('created_at');
+    const priceCol     = iNames.has('unit_price') ? 'unit_price' : 'price';
+
+    const orderIdCol = iCols.find(c => c.name === 'order_id');
+    const isTextOrderRef = orderIdCol
+      ? /TEXT|CHAR|CLOB/i.test(String(orderIdCol.type || '')) || String(orderIdCol.type||'') === ''
+      : false;
+
+    // JOIN 条件
+    const joins = [];
+    if (isTextOrderRef) {
+      if (hasOrderId)   joins.push('oi.order_id = o.order_id');
+      if (hasOrderCode) joins.push('oi.order_id = o.order_code');
+      if (!joins.length) joins.push('oi.order_id = CAST(o.id AS TEXT)');
+    } else {
+      joins.push('oi.order_id = o.id');
+    }
+    const joinCond = joins.join(' OR ');
+
+    const orderDispCol = hasOrderId ? 'o.order_id' : (hasOrderCode ? 'o.order_code' : 'o.id');
+    const orderBy = hasCreatedAt ? 'o.created_at DESC, o.id DESC' : 'o.id DESC';
+
+    const where = [];
+    const params = [];
+    if (productId) { where.push('oi.product_id = ?'); params.push(productId); }
+
+    const sql = `
+      SELECT
+        ${hasCreatedAt ? 'o.created_at' : "datetime('now')"} AS created_at,
+        ${orderDispCol} AS order_display,
+        oi.product_id   AS product_id,
+        oi.name         AS product_name,
+        oi.${priceCol}  AS unit_price,
+        oi.qty          AS qty,
+        u.id            AS buyer_id,
+        u.username      AS buyer_username
+      FROM order_items oi
+      JOIN orders o ON (${joinCond})
+      LEFT JOIN users u ON u.id = o.user_id
+      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+      ORDER BY ${orderBy}
+      LIMIT ? OFFSET ?;
+    `;
+    params.push(limit, offset);
+
+    const rows = await dbAll(sql, params);
+    res.json(rows.map(r => ({
+      created_at: r.created_at,
+      orderId: String(r.order_display),
+      productId: Number(r.product_id),
+      productName: r.product_name || '',
+      unitPrice: Math.round(Number(r.unit_price)||0),
+      qty: Math.max(0, Number(r.qty)||0),
+      subTotal: Math.round((Number(r.unit_price)||0) * (Number(r.qty)||0)),
+      buyerId: r.buyer_id ?? null,
+      buyer: r.buyer_username || ''
+    })));
+  } catch (e) {
+    console.error('[admin sales-events]', e);
+    res.status(500).json({ error: 'db' });
+  }
+});
+
+// === 公開: ベストセラー Top N（未ログインOK／スキーマ差異対応）
 app.get('/api/bestsellers', async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit || '10', 10), 50);
   const candidates = [
