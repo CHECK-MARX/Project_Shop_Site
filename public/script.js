@@ -15,7 +15,10 @@
   // ---- Auth bridge (fallback)
   const FallbackAuth = {
     getToken(){ return localStorage.getItem('token') || ''; },
-    getUser(){ try{ const raw = localStorage.getItem('auth_user'); return raw?JSON.parse(raw):null; }catch{ return null; } },
+    getUser(){
+      try{ const raw = localStorage.getItem('auth_user'); return raw?JSON.parse(raw):null; }
+      catch{ return null; }
+    },
     isLoggedIn(){ return !!localStorage.getItem('token'); },
     openLogin(){
       const m = $('#loginModal');
@@ -23,6 +26,7 @@
     }
   };
   const Auth = (window.Auth ?? FallbackAuth);
+  window.Auth = Auth; // 明示的に公開（他ページで使う）
 
   // ---- cart
   function cartKey(){ const u = Auth.getUser?.(); return `cart:${u?.username || 'guest'}`; }
@@ -102,9 +106,10 @@
     const r = await fetch(url, { headers: { ...(t ? {Authorization:`Bearer ${t}`} : {}) }});
     if(!r.ok) throw new Error(`HTTP ${r.status}`); return r.json();
   }
+  window.apiAuthGet = window.apiAuthGet || apiAuthGet;
 
   // ---- products grid（在庫連動）
-  async function loadProducts(search=""){
+  async function loadProducts(search=''){
     try{
       const qs = search ? `?search=${encodeURIComponent(search)}` : '';
       const items = await apiGet(`/api/products${qs}`);
@@ -220,7 +225,7 @@
         it.qty = Math.max(1,(it.qty||1)-1); setCart(list);
       }));
 
-      // ＋は在庫上限で止める（可能なら最新在庫を取得）
+      // ＋は在庫上限で止める
       $$('.qty-btn.plus', wrap).forEach(b=>b.addEventListener('click',async e=>{
         const id = Number(e.currentTarget.dataset.id);
         try{
@@ -231,7 +236,6 @@
           if (cur >= stock){ toast('在庫数を超えています'); return; }
           it.qty = cur + 1; setCart(list);
         }catch{
-          // フォールバック（サーバ取得失敗時）：暴走防止のみ
           const list = getCart(); const it = list.find(x=>x.productId===id); if(!it) return;
           it.qty = Math.min(999, (it.qty||1)+1); setCart(list);
         }
@@ -277,14 +281,15 @@
       return b && b.user;
     } catch { return null; }
   }
+
   function renderAdminLinks(isAdmin) {
     const nav = document.querySelector('.nav-links');
     if (!nav) return;
+
+    // 既存のリンクは一度除去
     document.getElementById('navInventory')?.remove();
     document.getElementById('navAdmin')?.remove();
     if (!isAdmin) return;
-
-    const authBtns = document.querySelector('.auth-buttons');
 
     const inv = document.createElement('a');
     inv.id = 'navInventory';
@@ -296,12 +301,33 @@
     adm.href = './admin.html';
     adm.textContent = '管理ダッシュボード';
 
-    if (authBtns) { nav.insertBefore(adm, authBtns); nav.insertBefore(inv, authBtns); }
-    else { nav.appendChild(adm); nav.appendChild(inv); }
+    // .auth-buttons は nav の「兄弟」なので、親要素に対して insertBefore する
+    const authBtns = document.querySelector('.auth-buttons');
+    const parent = authBtns?.parentElement;
+
+    try{
+      if (authBtns && parent) {
+        parent.insertBefore(adm, authBtns);
+        parent.insertBefore(inv, authBtns);
+      } else {
+        // 後方互換：nav の末尾に足す
+        nav.appendChild(adm);
+        nav.appendChild(inv);
+      }
+    }catch(e){
+      console.warn('[admin links]', e);
+      nav.appendChild(adm);
+      nav.appendChild(inv);
+    }
   }
+
   async function updateAdminNav() {
-    const me = await fetchMe();
-    renderAdminLinks(!!me && me.role === 'admin');
+    try{
+      const me = await fetchMe();
+      renderAdminLinks(!!me && me.role === 'admin');
+    }catch(e){
+      console.warn('[updateAdminNav]', e);
+    }
   }
   window.updateAdminNav = window.updateAdminNav || updateAdminNav;
 
@@ -423,12 +449,14 @@
   window.addEventListener('storage', ev=>{
     if (ev.key && ev.key.startsWith('cart:')) {
       updateCartBadge(); renderCartPage();
-      if ($('#productsGrid')) { // 商品一覧なら表示更新（上限ボタン反映）
+      if ($('#productsGrid')) {
         const q = new URLSearchParams(location.search).get('q') || '';
         loadProducts(q);
       }
     }
-    if (ev.key === 'auth_user' || ev.key === 'token') { clearGuestCartOnLogin(); updateCartBadge(); renderCartPage(); updateAdminNav(); }
+    if (ev.key === 'auth_user' || ev.key === 'token') {
+      clearGuestCartOnLogin(); updateCartBadge(); renderCartPage(); updateAdminNav();
+    }
   });
   window.addEventListener('focus', ()=> { updateAdminNav(); });
   window.addEventListener('auth:changed', ()=> { updateAdminNav(); });

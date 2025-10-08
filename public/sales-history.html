@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>売上履歴（全体）</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="./styles.css">
+  <style>
+    .admin-section{max-width:1280px;margin:0 auto;padding:24px 20px;}
+    .muted{opacity:.8}
+    .table{width:100%;border-collapse:collapse}
+    .table th,.table td{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08);white-space:nowrap}
+    .right{text-align:right}
+    .center{text-align:center}
+    .toolbar{display:flex;justify-content:flex-end;margin-bottom:12px}
+  </style>
+</head>
+<body>
+<header class="navbar">
+  <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
+  <div class="nav-links">
+    <a href="./index.html">ホーム</a>
+    <a href="./products.html">商品</a>
+    <a href="./cart.html">カート</a>
+    <a href="./admin.html" id="navAdmin">管理ダッシュボード</a>
+    <a href="./inventory.html" id="navInventory">在庫管理</a>
+  </div>
+  <div class="auth-buttons">
+    <a id="profileLink" href="./profile.html" class="btn btn-secondary" style="display:none;margin-right:8px;">プロフィール</a>
+    <span id="navUser" class="user-pill" hidden></span>
+    <button id="logoutBtn" class="btn btn-danger">ログアウト</button>
+  </div>
+</header>
+
+<main class="admin-section">
+  <div class="toolbar">
+    <a href="./inventory.html" class="btn btn-ghost">← 在庫管理へ戻る</a>
+  </div>
+
+  <h2>売上履歴（全体）</h2>
+  <p class="muted">直近の売上を新しい順に表示します。必要に応じて在庫管理の「売れた」合計と照合できます。</p>
+
+  <div id="msg" class="muted" style="margin:8px 0 12px;"></div>
+
+  <div class="inv-table-wrap">
+    <table class="table" id="histTable">
+      <thead>
+        <tr>
+          <th>日時</th>
+          <th>ユーザー</th>
+          <th>商品名</th>
+          <th class="right">数量</th>
+          <th class="right">単価</th>
+          <th class="right">小計</th>
+          <th>注文ID</th>
+        </tr>
+      </thead>
+      <tbody id="histBody"></tbody>
+    </table>
+  </div>
+
+  <div style="margin-top:14px">
+    <button id="moreBtn" class="btn btn-secondary btn-sm">さらに読み込む</button>
+  </div>
+</main>
+
+<script src="./script.js" defer></script>
+<script>
+(() => {
+  const $  = (s, r=document) => r.querySelector(s);
+  const fmtJPY = window.fmtJPY || (n => `¥${Math.round(Number(n||0)).toLocaleString('ja-JP')}`);
+
+  let offset = 0;
+  const limit  = 50;
+
+  async function loadPage() {
+    const body = $('#histBody');
+    const msg  = $('#msg');
+    msg.textContent = '';
+
+    try {
+      const rows = await window.apiAuthGet(`/api/admin/sales-timeline?limit=${limit}&offset=${offset}`);
+      if (!Array.isArray(rows)) throw new Error('bad');
+
+      if (rows.length === 0 && offset === 0) {
+        msg.textContent = 'データがありません。';
+        return;
+      }
+      const html = rows.map(r => {
+        const dt = new Date(r.created_at || Date.now());
+        const when = `${dt.getFullYear()}/${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+        return `<tr>
+          <td>${when}</td>
+          <td>${(r.user||'').replace(/</g,'&lt;')}</td>
+          <td>${(r.product||'').replace(/</g,'&lt;')}</td>
+          <td class="right">${r.qty}</td>
+          <td class="right">${fmtJPY(r.unit)}</td>
+          <td class="right">${fmtJPY(r.line)}</td>
+          <td><code>${(r.orderRef||'').replace(/</g,'&lt;')}</code></td>
+        </tr>`;
+      }).join('');
+      body.insertAdjacentHTML('beforeend', html);
+      offset += rows.length;
+
+      // 追加データがlimit未満ならボタンを隠す
+      if (rows.length < limit) $('#moreBtn').style.display = 'none';
+    } catch (e) {
+      console.error(e);
+      // 401/403/404 など
+      $('#moreBtn').style.display = 'none';
+      msg.textContent = '取得に失敗しました（権限が必要な可能性）';
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    // ナビの管理リンクを安全に更新（script.js 側の関数）
+    window.updateAdminNav?.();
+    loadPage();
+    $('#moreBtn').addEventListener('click', loadPage);
+  });
+})();
+</script>
+</body>
+</html>

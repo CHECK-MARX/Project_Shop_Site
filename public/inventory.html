@@ -3,282 +3,68 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>在庫管理 - Vulnerable Shop</title>
-  <div id="invMsg" class="muted" style="margin:8px 0;"></div>
+  <title>在庫管理</title>
   <link rel="stylesheet" href="./styles.css" />
-
-  <!-- このページ専用の軽量スタイル（他ページへは影響しないよう #invPage でスコープ） -->
   <style>
-    #invPage .card { padding: 12px; }
-    #invPage table.table { width:100%; border-collapse: separate; border-spacing: 0 10px; }
-    #invPage thead th {
-      font-weight: 700;
-      opacity: .9;
-      text-align: left;
-      padding: 10px 12px;
-    }
-    #invPage tbody tr {
-      background: #0f1b31;          /* 既存テーマのカード色に合わせる */
-      border: 1px solid #27334d;
-      border-radius: 12px;
-    }
-    /* 丸角を効かせるためにセル側に余白を入れる */
-    #invPage tbody td { padding: 10px 12px; }
-    #invPage tbody tr > td:first-child { border-top-left-radius: 12px; border-bottom-left-radius: 12px; }
-    #invPage tbody tr > td:last-child  { border-top-right-radius:12px; border-bottom-right-radius:12px; }
-
-    /* 入力 */
-    #invPage input.num-in, #invPage input.add-in {
-      width: 100%;
-      height: 38px;
-      background: #0b1426;
-      border: 1px solid #2c3a59;
-      color: #eaf2ff;
-      border-radius: 10px;
-      padding: 6px 10px;
-      outline: none;
-    }
-    #invPage .right { text-align: right; }
-
-    /* ミニボタン（+1 +5 +10） */
-    #invPage .btn.mini {
-      padding: 6px 10px;
-      font-size: 12px;
-      border-radius: 10px;
-      background: #1b2741;
-      border: 1px solid #2c3a59;
-    }
-    #invPage .btn.mini:hover { filter: brightness(1.1); }
-
-    /* 保存/追加ボタンの高さを入力と合わせる */
-    #invPage .btn.btn-secondary.save,
-    #invPage .btn.btn-success {
-      height: 38px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 10px;
-      padding: 0 14px;
-    }
-
-    /* セル内の横並び */
-    #invPage .row { display: flex; gap: 6px; align-items: center; }
-    #invPage .stock-cell { font-variant-numeric: tabular-nums; }
-    #invPage .sold-link { opacity: .85; }
-    #invPage .sold-link b { font-variant-numeric: tabular-nums; }
-    #invPage .sold-link:hover { text-decoration: underline; cursor: pointer; }
-
-    /* 幅の最適化（テーブルが潰れないよう、最小幅を指定） */
-    #invPage th:nth-child(1), #invPage td:nth-child(1) { width: 70px; }
-    #invPage th:nth-child(3), #invPage td:nth-child(3) { width: 160px; }
-    #invPage th:nth-child(4), #invPage td:nth-child(4) { width: 100px; }
-    #invPage th:nth-child(6), #invPage td:nth-child(6) { width: 180px; }
-    #invPage th:nth-child(7), #invPage td:nth-child(7) { width: 120px; }
+    .container{max-width:1100px;margin:28px auto;padding:0 16px;}
+    .muted{opacity:.75}
+    table.inventory{width:100%;border-collapse:collapse}
+    table.inventory th,table.inventory td{padding:12px 10px;border-bottom:1px solid #233}
+    .num-in{width:100%;max-width:220px}
+    .mini{min-width:52px}
+    .ctrls{display:flex;gap:8px;align-items:center}
+    .sold-line{min-width:120px;display:inline-block}
+    .right{display:flex;gap:10px;justify-content:flex-end}
   </style>
 </head>
 <body>
-<header class="navbar">
-  <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
-  <div class="nav-links">
-    <a href="./index.html">ホーム</a>
-    <a href="./products.html">商品</a>
-    <a href="./cart.html">カート</a>
-    <a href="./java-vuln.html" style="color:#ffd700;font-weight:bold;">Java脆弱性デモ</a>
-    <div class="auth-buttons">
-      <button id="logoutBtn" class="btn btn-danger">ログアウト</button>
-      <span id="navUser" class="user-pill" hidden></span>
-      <a id="profileLink" href="./profile.html" style="display:none;margin-left:8px;">プロフィール</a>
+  <header>
+    <nav class="navbar">
+      <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
+      <div class="nav-links">
+        <a href="./index.html">ホーム</a>
+        <a href="./products.html">商品</a>
+        <a href="./cart.html">カート <span id="cartCount" class="cart-badge">0</span></a>
+        <a href="./java-vuln.html" style="color:#ffd700;font-weight:bold;">Java脆弱性デモ</a>
+        <div class="auth-buttons">
+          <button id="loginBtn" class="btn btn-primary">ログイン</button>
+          <button id="registerBtn" class="btn btn-secondary">新規登録</button>
+          <button id="logoutBtn" class="btn btn-danger" style="display:none;">ログアウト</button>
+          <span id="navUser" class="user-pill" hidden></span>
+          <a id="profileLink" href="./profile.html" style="display:none;margin-left:8px;">プロフィール</a>
+        </div>
+      </div>
+    </nav>
+  </header>
+
+  <main id="invPage" class="container">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:18px;">
+      <h2>在庫管理（管理者専用）</h2>
+      <a id="btnSalesHistory" class="btn" href="./sales-history.html">売上履歴（全体）</a>
     </div>
-  </div>
-</header>
+    <p class="muted">※ 価格は整数（円）で保存されます。数量は 0 未満にはなりません。</p>
 
-<main id="invPage" class="container" style="max-width:1100px;">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:18px;">
-    <h2>在庫管理（管理者専用）</h2>
-    <a class="btn" href="./sales-history.html">売上履歴（全体）</a>
-  </div>
-  <p class="muted">※ 価格は整数（円）で保存されます。数量は 0 未満にはなりません。</p>
+    <div id="authMsg" class="muted" style="margin:8px 0 12px; display:none;">認証確認に失敗しました</div>
 
-  <div id="invMsg" class="muted" style="margin:8px 0;"></div>
-
-  <div class="card">
-    <table class="table">
+    <table class="inventory">
       <thead>
         <tr>
-          <th>ID</th>
+          <th style="width:60px;">ID</th>
           <th>商品名</th>
-          <th>価格</th>
-          <th>在庫</th>
-          <th>操作／売れた個数</th>
-          <th>数量</th>
-          <th>追加</th>
+          <th style="width:200px;">価格</th>
+          <th style="width:100px;">在庫</th>
+          <th style="width:320px;">操作／売れた個数</th>
+          <th style="width:260px;">数量</th>
+          <th style="width:120px;">追加</th>
         </tr>
       </thead>
       <tbody id="invBody"></tbody>
     </table>
-  </div>
-</main>
+  </main>
 
-<!-- 共通スクリプト -->
-<script src="./script.js"></script>
-
-<!-- 在庫管理ロジック（機能は前回と同じ） -->
-<script>
-(() => {
-  'use strict';
-  const $ = (s, r=document) => r.querySelector(s);
-  const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
-  const esc = s => String(s ?? '')
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-
-  const token = () => localStorage.getItem('token') || '';
-  const authHeaders = () => token() ? { Authorization:`Bearer ${token()}` } : {};
-  const setMsg = (t, ok=false) => {
-    const el = $('#invMsg'); if(!el) return;
-    el.textContent = t || '';
-    el.className = ok ? 'ok' : (t ? 'err' : 'muted');
-  };
-
-  async function ensureAdmin(){
-    if (!token()){ setMsg('未ログインです。右上からログインしてください。'); return false; }
-    try{
-      const r = await fetch('/api/me', { headers: authHeaders() });
-      if (!r.ok) throw 0;
-      const b = await r.json();
-      if (!b?.user || b.user.role !== 'admin'){ setMsg('権限がありません（管理者のみ）'); return false; }
-      return true;
-    }catch{ setMsg('認証確認に失敗しました'); return false; }
-  }
-
-  function rowHTML(p){
-    const id    = Number(p.id);
-    const name  = esc(p.name || '');
-    const price = Math.round(Number(p.price)||0);
-    const stock = Math.max(0, Number(p.stock)||0);
-
-    let html  = '<tr data-id="'+id+'">';
-    html +=   '<td>'+id+'</td>';
-    html +=   '<td><input class="num-in" value="'+name+'" data-k="name"></td>';
-    html +=   '<td><input class="num-in" type="number" step="1" value="'+price+'" data-k="price"></td>';
-    html +=   '<td class="stock-cell">'+stock+'</td>';
-    html +=   '<td>';
-    html +=     '<div class="row">';
-    html +=       '<button class="btn mini add" data-add="1">+1</button>';
-    html +=       '<button class="btn mini add" data-add="5">+5</button>';
-    html +=       '<button class="btn mini add" data-add="10">+10</button>';
-    html +=       '<span class="sold-link">売れた: <b>—</b></span>';
-    html +=       '<button class="btn btn-secondary save">保存</button>';
-    html +=     '</div>';
-    html +=   '</td>';
-    html +=   '<td class="right"><input class="add-in" type="number" placeholder="0" value="0"></td>';
-    html +=   '<td><button class="btn btn-success do-add">追加</button></td>';
-    html += '</tr>';
-    return html;
-  }
-
-  async function loadList(){
-    setMsg('');
-    const body = $('#invBody'); if (!body) return;
-    body.innerHTML = '<tr><td colspan="7" class="muted">読み込み中…</td></tr>';
-    try{
-      const r = await fetch('/api/products');
-      if(!r.ok) throw 0;
-      const items = await r.json();
-      if (!Array.isArray(items) || !items.length){
-        body.innerHTML = '<tr><td colspan="7" class="muted">商品がありません。</td></tr>';
-        return;
-      }
-      body.innerHTML = items.map(rowHTML).join('');
-      wireRowEvents();
-    }catch{
-      body.innerHTML = '<tr><td colspan="7" class="err">読み込み失敗</td></tr>';
-    }
-  }
-
-  function wireRowEvents(){
-    const body = $('#invBody'); if(!body) return;
-
-    $$('.save', body).forEach(btn=>{
-      btn.addEventListener('click', async (e)=>{
-        const tr = e.currentTarget.closest('tr'); if(!tr) return;
-        const id = Number(tr.getAttribute('data-id'));
-        const name = tr.querySelector('[data-k="name"]').value.trim();
-        let price = Math.round(Number(tr.querySelector('[data-k="price"]').value));
-        if(!Number.isFinite(price) || price < 0) price = 0;
-
-        try{
-          const r = await fetch(`/api/admin/products/${id}`, {
-            method:'PUT',
-            headers: { 'Content-Type':'application/json', ...authHeaders() },
-            body: JSON.stringify({ name, price })
-          });
-          if (!r.ok) throw 0;
-          setMsg('保存しました', true);
-          await loadList();
-        }catch{
-          setMsg('保存に失敗しました');
-        }
-      });
-    });
-
-    $$('.add', body).forEach(btn=>{
-      btn.addEventListener('click', e=>{
-        const tr = e.currentTarget.closest('tr'); if(!tr) return;
-        const addIn = tr.querySelector('.add-in');
-        const add = Number(e.currentTarget.getAttribute('data-add')) || 0;
-        const cur = Math.round(Number(addIn.value)||0);
-        addIn.value = String(cur + add);
-      });
-    });
-
-    $$('.do-add', body).forEach(btn=>{
-      btn.addEventListener('click', async (e)=>{
-        const tr = e.currentTarget.closest('tr'); if(!tr) return;
-        const id = Number(tr.getAttribute('data-id'));
-        let add = Math.round(Number(tr.querySelector('.add-in').value));
-        if (!Number.isFinite(add)) add = 0;
-
-        try{
-          const r = await fetch(`/api/admin/products/${id}/stock/add`, {
-            method:'POST',
-            headers: { 'Content-Type':'application/json', ...authHeaders() },
-            body: JSON.stringify({ add })
-          });
-          if (!r.ok) throw 0;
-          const d = await r.json();
-          tr.querySelector('.stock-cell').textContent = String(d.stock ?? '0');
-          tr.querySelector('.add-in').value = '0';
-          setMsg('在庫を更新しました', true);
-        }catch{
-          setMsg('在庫の更新に失敗しました');
-        }
-      });
-    });
-
-    $$('.sold-link', body).forEach(sp=>{
-      sp.addEventListener('click', e=>{
-        const tr = e.currentTarget.closest('tr'); if(!tr) return;
-        const id = Number(tr.getAttribute('data-id'));
-        location.href = `./sales-history.html?product=${encodeURIComponent(id)}`;
-      });
-    });
-  }
-
-  document.addEventListener('DOMContentLoaded', async ()=>{
-    $('#logoutBtn')?.addEventListener('click', ()=>{
-      localStorage.removeItem('token'); localStorage.removeItem('auth_user');
-      location.href = './index.html';
-    });
-
-    if (!(await ensureAdmin())) return;
-    loadList();
-  });
-})();
-</script>
-<!-- 共通ヘルパ（Auth/トースト/ナビ制御等が入っている想定） -->
-<script src="/script.js" defer></script>
-<!-- 在庫ページ専用 -->
-<script src="/inventory.js" defer></script>
+  <!-- 先にコア -->
+  <script src="./script.js" defer></script>
+  <!-- 必ず public/js/inventory.js に置く -->
+  <script src="./js/inventory.js" defer></script>
 </body>
 </html>

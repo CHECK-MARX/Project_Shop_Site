@@ -700,7 +700,106 @@ app.get('/api/bestsellers', async (req, res) => {
     })));
   }catch(e){ console.error('GET /api/bestsellers error:', e); res.status(500).json({ error:'failed_to_aggregate' }); }
 });
+// === 管理: 売上履歴タイムライン（最新→古い） =========================
+//   いろんなスキーマ差分（order_id / order_code / id、qty/quantity、unit_price/price、line_total）に耐える版
+app.get('/api/admin/sales-timeline', requireAdmin, async (req, res) => {
+  try {
+    const limit  = Math.max(1, Math.min(200, parseInt(req.query.limit || '50', 10)));
+    const offset = Math.max(0, parseInt(req.query.offset || '0', 10));
 
+    // ordersの列状況
+    const oCols = await dbAll(`PRAGMA table_info('orders')`);
+    const oset  = new Set(oCols.map(c => c.name));
+    const hasOrderId   = oset.has('order_id');
+    const hasOrderCode = oset.has('order_code');
+    const hasSubtotal  = oset.has('subtotal');
+    const hasTax       = oset.has('tax');
+    const hasTotal     = oset.has('total');
+
+    // order_itemsの列状況
+    const iCols = await dbAll(`PRAGMA table_info('order_items')`);
+    const imap  = new Map(iCols.map(c => [c.name, c]));
+    const ihas  = n => imap.has(n);
+    const priceCol = ihas('unit_price') ? 'unit_price' : 'price';
+    const qtyCol   = ihas('qty')        ? 'qty'        : (ihas('quantity') ? 'quantity' : 'qty');
+    const hasLine  = ihas('line_total');
+
+    // order_items.order_id の型（TEXT の場合は orders の order_id/order_code で結合）
+    const idColInfo = imap.get('order_id');
+    const idType = String(idColInfo?.type || '').toUpperCase(); // '' の可能性もある
+    const looksText = idType.includes('TEXT') || idType.includes('CHAR') || idType.includes('CLOB') || idType === '';
+
+    // 結合条件を用意
+    let joinCond = 'oi.order_id = o.id';
+    if (looksText && (hasOrderId || hasOrderCode)) {
+      // TEXT同士で安全に
+      if (hasOrderId && hasOrderCode) {
+        joinCond = '(oi.order_id = o.order_id OR oi.order_id = o.order_code)';
+      } else if (hasOrderId) {
+        joinCond = 'oi.order_id = o.order_id';
+      } else { // hasOrderCode
+        joinCond = 'oi.order_id = o.order_code';
+      }
+    }
+
+    // 文字の注文ID（UI 表示用）
+    const orderRefExpr = (hasOrderId || hasOrderCode)
+      ? `(COALESCE(o.order_id, o.order_code, CAST(o.id AS TEXT)))`
+      : `CAST(o.id AS TEXT)`;
+
+    // 合計（無いDBでも計算fallback）
+    const subtotalExpr = hasSubtotal
+      ? 'o.subtotal'
+      : (hasLine ? 'SUM(oi.line_total)' : `SUM( (oi.${priceCol}) * (oi.${qtyCol}) )`);
+    const taxExpr  = hasTax  ? 'o.tax'  : `CAST(ROUND( (${subtotalExpr}) * 0.1 ) AS INTEGER)`;
+    const totalExpr= hasTotal? 'o.total': `(${subtotalExpr}) + (${taxExpr})`;
+
+    // products名のフォールバック（order_items.name優先、無ければ products.name）
+    // users.username（無い場合 email）、両方無ければ''。
+    const sql = `
+      SELECT
+        o.id            AS orderInternalId,
+        ${orderRefExpr} AS orderRef,
+        o.created_at    AS created_at,
+        u.username      AS username,
+        u.email         AS email,
+        COALESCE(oi.name, p.name, '') AS product_name,
+        CAST(oi.${qtyCol} AS INTEGER) AS qty,
+        CAST(oi.${priceCol} AS INTEGER) AS unitPrice,
+        ${hasLine ? 'CAST(oi.line_total AS INTEGER)' : `CAST( (oi.${priceCol}) * (oi.${qtyCol}) AS INTEGER )`} AS lineTotal,
+        CAST(${subtotalExpr} AS INTEGER) AS subtotal,
+        CAST(${taxExpr}      AS INTEGER) AS tax,
+        CAST(${totalExpr}    AS INTEGER) AS total
+      FROM orders o
+        JOIN order_items oi ON ${joinCond}
+        LEFT JOIN products p ON p.id = oi.product_id
+        LEFT JOIN users    u ON u.id = o.user_id
+      ORDER BY
+        datetime(o.created_at) DESC, o.id DESC, oi.id DESC
+      LIMIT ? OFFSET ?`;
+
+    const rows = await dbAll(sql, [limit, offset]);
+
+    // ユーザー名整形
+    const out = rows.map(r => ({
+      orderRef : String(r.orderRef || r.orderInternalId || ''),
+      created_at: r.created_at,
+      user     : (r.username || r.email || ''),
+      product  : r.product_name || '',
+      qty      : Math.max(0, Number(r.qty) || 0),
+      unit     : Math.max(0, Number(r.unitPrice) || 0),
+      line     : Math.max(0, Number(r.lineTotal) || 0),
+      subtotal : Math.max(0, Number(r.subtotal) || 0),
+      tax      : Math.max(0, Number(r.tax) || 0),
+      total    : Math.max(0, Number(r.total) || 0),
+    }));
+
+    res.json(out);
+  } catch (e) {
+    console.error('[sales-timeline]', e);
+    res.status(500).json({ error: 'db' });
+  }
+});
 // ---- 静的
 app.get('/', (_req,res)=> res.sendFile(path.join(__dirname, 'public', 'index.html')));
 

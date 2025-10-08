@@ -17,14 +17,27 @@ body{
     linear-gradient(135deg,#0f1020 0%,#1a1033 50%,#101b3a 100%);
 }
 
-/* ---- Buttons ---- */
-.btn{display:inline-flex;align-items:center;justify-content:center;height:44px;padding:0 16px;border-radius:10px;border:0;font-weight:700;letter-spacing:.02em;cursor:pointer;transition:filter .15s,transform .05s;text-decoration:none;color:#fff;box-shadow:0 10px 20px rgba(0,0,0,.25);}
+/* ---- Buttons (global) ---- */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;
+  height:44px;padding:0 16px;border-radius:10px;border:0;
+  font-weight:700;letter-spacing:.02em;cursor:pointer;
+  transition:filter .15s,transform .05s;text-decoration:none;color:#fff;
+  box-shadow:0 10px 20px rgba(0,0,0,.25);
+  background:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,.06)); /* デフォ背景 */
+  border:1px solid rgba(255,255,255,.10);
+}
 .btn:hover{filter:brightness(1.05)} .btn:active{transform:translateY(1px)}
-.btn-primary{background:linear-gradient(180deg,#2d7ef7,#1f5ed6);} .btn-secondary{background:#6c757d;}
-.btn-success{background:#28a745;} .btn-danger{background:#dc3545;}
-.btn-warning{background:#ffc107;color:#1a1a1a;} .btn-info{background:#17a2b8;}
-.btn-sm{height:36px;padding:0 12px;border-radius:10px;font-size:14px;} .btn-xs{height:28px;padding:0 10px;border-radius:8px;font-size:12px;}
-.btn-ghost{background:transparent;color:#e9edf6;border:1px solid rgba(255,255,255,.18);} .btn-ghost:hover{background:rgba(255,255,255,.08)}
+.btn-primary{background:linear-gradient(180deg,#2d7ef7,#1f5ed6);} 
+.btn-secondary{background:#6b7280;}      /* gray */
+.btn-success{background:#22c55e;}        /* green */
+.btn-danger{background:#dc3545;}
+.btn-warning{background:#ffc107;color:#1a1a1a;} 
+.btn-info{background:#17a2b8;}
+.btn-sm{height:36px;padding:0 12px;border-radius:10px;font-size:14px;} 
+.btn-xs{height:28px;padding:0 10px;border-radius:8px;font-size:12px;}
+.btn-ghost{background:transparent;color:#e9edf6;border:1px solid rgba(255,255,255,.18);} 
+.btn-ghost:hover{background:rgba(255,255,255,.08)}
 .btn-group{display:inline-flex;align-items:center;gap:8px}
 
 /* ---- Navbar ---- */
@@ -39,7 +52,7 @@ body{
 
 /* ---- Sections ---- */
 .hero{padding:40px 20px;text-align:center;}
-.products-section,.cart-section,.admin-section{padding:24px 20px;max-width:1280px;margin:0 auto;} /* ← 1280px に拡張 */
+.products-section,.cart-section,.admin-section{padding:24px 20px;max-width:1280px;margin:0 auto;}
 
 /* ---- Product Grid ---- */
 .products-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px;}
@@ -57,19 +70,12 @@ body{
 .qty-btn.minus{background:#2a3148;color:#e9edf6;} .qty-btn.plus{background:#2d7ef7;color:#fff;}
 .qty-pill{min-width:40px;height:36px;display:inline-grid;place-items:center;background:#39405b;color:#fff;border-radius:10px;font-weight:900;}
 
-/* ---- Summary ---- */
-.sum-box{margin-top:18px;padding:20px;border-radius:12px;background:#0e1424;border:1px solid #27334d;}
-.sum-row{display:flex;justify-content:space-between;align-items:center;gap:16px;}
-.sum-ttl{font-size:20px;font-weight:900;}
-
-/* ---- Tables ---- */
+/* ---- Table base ---- */
 .table{width:100%;border-collapse:collapse;}
 .table th,.table td{padding:12px 14px;border-bottom:1px solid #223051;vertical-align:middle;}
 .table th{text-align:left;color:#c9d4f1;opacity:.9;}
 
-/* ============================
-   Unified Modal
-   ============================ */
+/* ---- Modal ---- */
 .modal.hidden{display:none!important;} .modal.open{display:grid!important;}
 .modal{position:fixed;inset:0;display:none;place-items:center;padding:24px;z-index:10000;}
 .modal::before{content:"";position:absolute;inset:0;background:rgba(5,10,20,.64);backdrop-filter:blur(3px);}
@@ -88,67 +94,117 @@ body.modal-open{overflow:hidden;}
 #toaster{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:11000;display:grid;gap:8px;}
 #toaster>div{padding:10px 14px;border-radius:10px;border:1px solid #2b3a5a;background:#0f1729;color:#e9edf6;box-shadow:0 6px 24px rgba(0,0,0,.35);font-weight:700;}
 
-/* ============ 追加: 検索UI ============ */
+/* ---- Search ---- */
 .search-container{max-width:560px;margin:12px auto 0;display:flex;gap:10px;align-items:center;}
 #searchInput,.search-input{flex:1;height:42px;padding:10px 12px;border-radius:10px;border:1px solid #2c3a59;background:#101829;color:#e9edf6;outline:none;transition:border-color .15s,box-shadow .15s;}
 #searchInput::placeholder,.search-input::placeholder{color:#9fb0d4;}
 #searchInput:focus,.search-input:focus{border-color:#2d7ef7;box-shadow:0 0 0 3px rgba(45,126,247,.25);}
 #searchBtn{height:42px;}
 
-/* ============ 在庫管理（inventory.html） ============ */
+/* ====================================================
+   Inventory page (no conflicts)
+   ==================================================== */
+#invPage{ padding:24px 20px; max-width:1280px; margin:0 auto; }
 
-/* インラインの max-width を上書き（古いHTMLでも切れないよう保険） */
-main.products-section[style]{ max-width: 1280px !important; }
-
-/* テーブルの最小幅を確保（操作列が詰まらない） */
-#invTable{ width:100%; min-width: 1100px; border-collapse: collapse; }
-
-/* 列幅（目安） */
-#invTable thead th:nth-child(1),
-#invTable tbody td:nth-child(1){ width:64px; }
-#invTable thead th:nth-child(2),
-#invTable tbody td:nth-child(2){ width:44%; } /* 商品名ひろめ */
-#invTable thead th:nth-child(3),
-#invTable tbody td:nth-child(3){ width:160px; }
-#invTable thead th:nth-child(4),
-#invTable tbody td:nth-child(4){ width:90px; }
-#invTable thead th:nth-child(5),
-#invTable tbody td:nth-child(5){ width:auto; }
-
-.inv-input{height:36px;padding:6px 10px;border-radius:10px;background:#0b1220;color:#e6edf7;border:1px solid #334155;outline:none;width:100%;}
-.inv-input:focus{border-color:#60a5fa;box-shadow:0 0 0 2px rgba(96,165,250,.25);}
-.inv-name{width:100%;}
-.inv-price{width:110px;text-align:right;}
-.inv-add{width:80px;text-align:right;}
-.inv-stock{font-weight:700;letter-spacing:.5px;}
-
-/* 操作列を横並び＋狭い時は折り返し */
-.inv-ops{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-.inv-ops > *{ margin:0 !important; }
-
-/* 「売れた」バッジ */
-.inv-sold{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 10px;border-radius:10px;background:#0b1220;border:1px solid #334155;color:#cfe1ff;font-weight:700;white-space:nowrap;min-width:110px;}
-.inv-sold b{color:#fff;font-weight:900;}
-
-/* テーブルが狭い画面でも全体を横スクロール可能に */
-.inv-table-wrap{ overflow-x:auto; border-radius:14px; border:1px solid #27334d; background:rgba(29,37,61,.35); }
-
-/* ---- Responsive ---- */
-@media (max-width: 1024px){
-  .inv-ops{ min-width:520px; }
+/* ラッパ（横スクロール保険） */
+#invPage .inv-table-wrap{
+  overflow-x:auto;
+  border-radius:14px;
+  border:1px solid #27334d;
+  background:rgba(29,37,61,.35);
 }
-@media (max-width:768px){
-  .navbar{flex-wrap:wrap;gap:10px;}
-  .nav-links{gap:14px;}
-  .products-grid{grid-template-columns:repeat(auto-fit,minmax(200px,1fr));}
-  .search-container{max-width:92vw;}
+
+/* テーブル本体 */
+#invPage #invTable{
+  width:100%;
+  min-width:1100px;
+  border-collapse:collapse;
+  table-layout:fixed;
 }
+#invPage #invTable th,
+#invPage #invTable td{
+  padding:12px 12px;
+  border-bottom:1px solid rgba(255,255,255,.08);
+  vertical-align:middle;
+  white-space:nowrap;
+}
+#invPage #invTable th{ color:#c9d4f1; opacity:.9; text-align:left; }
+
+/* 列幅（商品名広め／価格狭め） */
+#invPage #invTable thead th:nth-child(1){ width:64px; }   /* ID */
+#invPage #invTable thead th:nth-child(2){ width:auto; }   /* 商品名（自由） */
+#invPage #invTable thead th:nth-child(3){ width:140px; }  /* 価格（狭め） */
+#invPage #invTable thead th:nth-child(4){ width:90px; }   /* 在庫 */
+#invPage #invTable thead th:nth-child(5){ width:360px; }  /* 操作/売れた個数 */
+#invPage #invTable thead th:nth-child(6){ width:240px; }  /* 数量 */
+#invPage #invTable thead th:nth-child(7){ width:120px; }  /* 追加 */
+
+/* 入力共通 */
+#invPage input.num-in{
+  width:100%;
+  height:36px;
+  padding:6px 10px;
+  border-radius:10px;
+  background:#0b1220;
+  border:1px solid #334155;
+  color:#e6edf7;
+  outline:none;
+}
+#invPage input.num-in:focus{
+  border-color:#60a5fa;
+  box-shadow:0 0 0 2px rgba(96,165,250,.25);
+}
+
+/* 個別幅 */
+#invPage .name-in{ width:100%; }                 /* 商品名は自動で広い */
+#invPage .price-in{ max-width:120px; text-align:right; }  /* 価格はさらに絞る */
+#invPage .add-in{ max-width:120px; text-align:right; }    /* 数量 */
+#invPage .stock{ font-weight:700; letter-spacing:.5px; }
+
+/* 操作列の見た目 */
+#invPage .ctrls{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:nowrap;
+}
+#invPage .ctrls .btn{
+  height:36px; padding:0 12px; line-height:36px; border-radius:10px;
+  flex:0 0 auto;
+}
+#invPage .ctrls .mini{
+  min-width:52px;
+  background:#24324d;                      /* +1 +5 +10 を濃いスレート */
+  border-color:#324460;
+}
+#invPage .ctrls .mini:hover{ filter:brightness(1.12); }
+
+/* 「売れた: n」 */
+#invPage .sold-line{
+  min-width:120px;
+  display:inline-block;
+  opacity:.9;
+}
+
+/* ボタン色（在庫ページで強制） */
+#invPage .save{ background:#6b7280 !important; }   /* 保存＝グレー */
+#invPage .do-add{ background:#22c55e !important; } /* 追加＝グリーン */
+#invPage .btn-success{ background:#22c55e; }       /* 念のため */
+#invPage .btn-secondary{ background:#6b7280; }
+
+/* 行ホバー */
+#invPage #invTable tbody tr{ background:rgba(255,255,255,.02); }
+#invPage #invTable tbody tr:hover{ background:rgba(255,255,255,.04); }
+
+/* 狭い画面の折返し */
+@media (max-width: 920px){
+  #invPage #invTable{ table-layout:auto; }
+  #invPage .ctrls{ flex-wrap:wrap; }
+  #invPage .sold-line{ min-width:0; }
+}
+
 /* ===== Bestseller (home) ===== */
-.best-list{
-  display:grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap:14px;
-}
+.best-list{ display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:14px; }
 .best-card{
   display:block;
   background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.02));
@@ -168,8 +224,6 @@ main.products-section[style]{ max-width: 1280px !important; }
 }
 .best-name{ font-weight:800; margin:10px 0 4px; }
 .best-meta{ opacity:.9; font-size:14px; }
-.best-card .medal{}
-/* 上位3つだけ色を変える（お好みで） */
 .best-card:nth-child(1) .best-rank{ background:#ffd700; color:#1a1a1a; }
 .best-card:nth-child(2) .best-rank{ background:#c0c0c0; color:#1a1a1a; }
 .best-card:nth-child(3) .best-rank{ background:#cd7f32; color:#1a1a1a; }
