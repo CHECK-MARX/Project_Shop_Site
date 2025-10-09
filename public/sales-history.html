@@ -1,124 +1,187 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>売上履歴（全体）</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <link rel="stylesheet" href="./styles.css">
-  <style>
-    .admin-section{max-width:1280px;margin:0 auto;padding:24px 20px;}
-    .muted{opacity:.8}
-    .table{width:100%;border-collapse:collapse}
-    .table th,.table td{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08);white-space:nowrap}
-    .right{text-align:right}
-    .center{text-align:center}
-    .toolbar{display:flex;justify-content:flex-end;margin-bottom:12px}
-  </style>
+  <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-<header class="navbar">
-  <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
-  <div class="nav-links">
-    <a href="./index.html">ホーム</a>
-    <a href="./products.html">商品</a>
-    <a href="./cart.html">カート</a>
-    <a href="./admin.html" id="navAdmin">管理ダッシュボード</a>
-    <a href="./inventory.html" id="navInventory">在庫管理</a>
-  </div>
-  <div class="auth-buttons">
-    <a id="profileLink" href="./profile.html" class="btn btn-secondary" style="display:none;margin-right:8px;">プロフィール</a>
-    <span id="navUser" class="user-pill" hidden></span>
-    <button id="logoutBtn" class="btn btn-danger">ログアウト</button>
-  </div>
-</header>
+  <header class="navbar">
+    <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
+    <div class="nav-links">
+      <a href="./index.html">ホーム</a>
+      <a href="./products.html">商品</a>
+      <a href="./cart.html">カート</a>
+      <a href="./admin.html">管理ダッシュボード</a>
+      <a href="./inventory.html">在庫管理</a>
+    </div>
+    <div class="auth-buttons">
+      <a class="btn btn-ghost btn-sm" href="./inventory.html">← 在庫管理へ戻る</a>
+    </div>
+  </header>
 
-<main class="admin-section">
-  <div class="toolbar">
-    <a href="./inventory.html" class="btn btn-ghost">← 在庫管理へ戻る</a>
-  </div>
+  <main class="admin-section" style="max-width:1280px;margin:0 auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 10px;">
+      <h2>売上履歴（全体）</h2>
+      <div class="btn-group">
+        <button id="btnReload" class="btn btn-ghost btn-sm">最新を再取得</button>
+      </div>
+    </div>
+    <p class="muted">直近の売上を新しい順に表示します。必要に応じて在庫管理の「売れた」合計と照合できます。</p>
 
-  <h2>売上履歴（全体）</h2>
-  <p class="muted">直近の売上を新しい順に表示します。必要に応じて在庫管理の「売れた」合計と照合できます。</p>
+    <!-- 検索バー -->
+    <div class="search-container" style="max-width:100%;margin-top:12px;gap:8px;display:grid;grid-template-columns:1fr 1fr 140px 140px auto auto;">
+      <input id="qUser" class="search-input" placeholder="ユーザー（username / email 部分一致）" />
+      <input id="qProduct" class="search-input" placeholder="商品名（部分一致）" />
+      <input id="qMin" class="search-input" type="number" min="0" placeholder="金額（以上）" />
+      <input id="qMax" class="search-input" type="number" min="0" placeholder="金額（以下）" />
+      <button id="btnSearch" class="btn btn-primary">検索</button>
+      <button id="btnClear" class="btn btn-secondary">クリア</button>
+    </div>
 
-  <div id="msg" class="muted" style="margin:8px 0 12px;"></div>
+    <!-- 件数表示 -->
+    <div id="hitInfo" class="muted" style="margin:10px 2px;"></div>
 
-  <div class="inv-table-wrap">
-    <table class="table" id="histTable">
-      <thead>
-        <tr>
-          <th>日時</th>
-          <th>ユーザー</th>
-          <th>商品名</th>
-          <th class="right">数量</th>
-          <th class="right">単価</th>
-          <th class="right">小計</th>
-          <th>注文ID</th>
-        </tr>
-      </thead>
-      <tbody id="histBody"></tbody>
-    </table>
-  </div>
+    <!-- テーブル -->
+    <div class="inv-table-wrap" style="margin-top:8px;">
+      <table class="table" id="salesTable">
+        <thead>
+          <tr>
+            <th style="width:160px;">日時</th>
+            <th style="width:180px;">ユーザー</th>
+            <th>商品名</th>
+            <th style="width:90px;text-align:right;">数量</th>
+            <th style="width:120px;text-align:right;">単価</th>
+            <th style="width:140px;text-align:right;">小計（行）</th>
+            <th style="width:120px;text-align:center;">注文ID</th>
+          </tr>
+        </thead>
+        <tbody id="salesBody"></tbody>
+      </table>
+    </div>
 
-  <div style="margin-top:14px">
-    <button id="moreBtn" class="btn btn-secondary btn-sm">さらに読み込む</button>
-  </div>
-</main>
+    <div style="display:flex;justify-content:center;margin:16px 0 28px;">
+      <button id="btnMore" class="btn btn-ghost btn-sm" hidden>さらに読み込む</button>
+    </div>
+  </main>
 
-<script src="./script.js" defer></script>
-<script>
-(() => {
-  const $  = (s, r=document) => r.querySelector(s);
-  const fmtJPY = window.fmtJPY || (n => `¥${Math.round(Number(n||0)).toLocaleString('ja-JP')}`);
+  <script src="./script.js" defer></script>
+  <script>
+    (function(){
+      'use strict';
+      const body   = document.getElementById('salesBody');
+      const hit    = document.getElementById('hitInfo');
+      const more   = document.getElementById('btnMore');
+      const reload = document.getElementById('btnReload');
 
-  let offset = 0;
-  const limit  = 50;
+      const qUser    = document.getElementById('qUser');
+      const qProduct = document.getElementById('qProduct');
+      const qMin     = document.getElementById('qMin');
+      const qMax     = document.getElementById('qMax');
+      const btnSearch= document.getElementById('btnSearch');
+      const btnClear = document.getElementById('btnClear');
 
-  async function loadPage() {
-    const body = $('#histBody');
-    const msg  = $('#msg');
-    msg.textContent = '';
+      // ★ 初期は「全件表示」モード
+      const page = { all:true, limit:100, offset:0, lastCount:0, filters:{} };
 
-    try {
-      const rows = await window.apiAuthGet(`/api/admin/sales-timeline?limit=${limit}&offset=${offset}`);
-      if (!Array.isArray(rows)) throw new Error('bad');
+      function fmt(n){ try{ return window.fmtJPY ? fmtJPY(n) : ('¥'+(Math.round(n||0)).toLocaleString('ja-JP')); }catch{ return n; } }
+      const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 
-      if (rows.length === 0 && offset === 0) {
-        msg.textContent = 'データがありません。';
-        return;
+      function readFilters(){
+        const f = {};
+        const u = qUser.value.trim();    if (u) f.user = u;
+        const p = qProduct.value.trim(); if (p) f.product = p;
+        const mi= qMin.value.trim();     if (mi !== '') f.min = Math.max(0, parseInt(mi,10)||0);
+        const ma= qMax.value.trim();     if (ma !== '') f.max = Math.max(0, parseInt(ma,10)||0);
+        return f;
       }
-      const html = rows.map(r => {
-        const dt = new Date(r.created_at || Date.now());
-        const when = `${dt.getFullYear()}/${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
-        return `<tr>
-          <td>${when}</td>
-          <td>${(r.user||'').replace(/</g,'&lt;')}</td>
-          <td>${(r.product||'').replace(/</g,'&lt;')}</td>
-          <td class="right">${r.qty}</td>
-          <td class="right">${fmtJPY(r.unit)}</td>
-          <td class="right">${fmtJPY(r.line)}</td>
-          <td><code>${(r.orderRef||'').replace(/</g,'&lt;')}</code></td>
-        </tr>`;
-      }).join('');
-      body.insertAdjacentHTML('beforeend', html);
-      offset += rows.length;
 
-      // 追加データがlimit未満ならボタンを隠す
-      if (rows.length < limit) $('#moreBtn').style.display = 'none';
-    } catch (e) {
-      console.error(e);
-      // 401/403/404 など
-      $('#moreBtn').style.display = 'none';
-      msg.textContent = '取得に失敗しました（権限が必要な可能性）';
-    }
-  }
+      function buildQS(obj){
+        const u = new URLSearchParams();
+        if (page.all) {
+          u.set('all','1'); // ← 全件モード（サーバ側で LIMIT/OFFSET 無効）
+        } else {
+          u.set('limit', String(page.limit));
+          u.set('offset', String(page.offset));
+        }
+        for (const [k,v] of Object.entries(obj||{})) if (v !== undefined && v !== null && v!=='') u.set(k, String(v));
+        return u.toString();
+      }
 
-  document.addEventListener('DOMContentLoaded', () => {
-    // ナビの管理リンクを安全に更新（script.js 側の関数）
-    window.updateAdminNav?.();
-    loadPage();
-    $('#moreBtn').addEventListener('click', loadPage);
-  });
-})();
-</script>
+      async function fetchSales(opts={}){
+        const append = !!opts.append;
+        const qs = buildQS(page.filters);
+        try{
+          const headers = {};
+          if (window.Auth?.getToken) {
+            const t = Auth.getToken() || '';
+            if (t) headers.Authorization = 'Bearer ' + t;
+          }
+          const r = await fetch('/api/admin/sales-timeline?' + qs, { headers });
+          if (!r.ok) throw new Error('HTTP '+r.status);
+          const rows = await r.json();
+          page.lastCount = rows.length;
+
+          if (!append) body.innerHTML = '';
+
+          for (const it of rows){
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td>${esc(it.created_at || '')}</td>
+              <td>${esc(it.user || '')}</td>
+              <td>${esc(it.product || '')}</td>
+              <td style="text-align:right;">${Number(it.qty||0).toLocaleString('ja-JP')}</td>
+              <td style="text-align:right;">${fmt(it.unit||0)}</td>
+              <td style="text-align:right;font-weight:700;">${fmt(it.line||0)}</td>
+              <td style="text-align:center;font-family:monospace;">${esc(it.orderRef || '')}</td>
+            `;
+            body.appendChild(tr);
+          }
+
+          const loaded = body.children.length;
+          hit.textContent = page.all
+            ? `表示件数: ${loaded.toLocaleString('ja-JP')}（全件表示）`
+            : `表示件数: ${loaded.toLocaleString('ja-JP')}${rows.length < page.limit ? '（末尾まで到達）' : ''}`;
+
+          more.hidden   = page.all;
+          more.disabled = page.all || rows.length < page.limit;
+        }catch(e){
+          console.error(e);
+          body.innerHTML = `<tr><td colspan="7" class="muted">取得に失敗しました（権限が必要な可能性）</td></tr>`;
+          hit.textContent = '';
+          more.hidden = true;
+        }
+      }
+
+      function doSearch(){
+        page.offset = 0;
+        page.filters = readFilters();
+        // 検索しても基本は全件表示を維持（フィルタ後の全件）
+        page.all = true;
+        fetchSales({ append:false });
+      }
+      function loadMore(){
+        if (page.all) return;
+        page.offset += page.limit;
+        fetchSales({ append:true });
+      }
+      function clearFilters(){
+        qUser.value = qProduct.value = qMin.value = qMax.value = '';
+        doSearch();
+      }
+
+      btnSearch.addEventListener('click', doSearch);
+      btnClear .addEventListener('click', clearFilters);
+      more     .addEventListener('click', loadMore);
+      reload   .addEventListener('click', ()=>{ page.offset = 0; fetchSales({ append:false }); });
+      [qUser,qProduct,qMin,qMax].forEach(el=> el.addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(); }));
+
+      // 初期ロード：フィルター無しで全件
+      page.filters = {};
+      page.all = true;
+      fetchSales({ append:false });
+    })();
+  </script>
 </body>
 </html>

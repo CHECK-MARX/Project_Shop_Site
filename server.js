@@ -1,8 +1,21 @@
 // server.js — 公開ベストセラーAPI / 在庫・決済 / 管理系 + プロフィールAPI（sqliteスキーマ差異に強い版）
 
+/* ─────────────────────────
+   0) 起動・例外ログを強化
+───────────────────────── */
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('[unhandledRejection]', err);
+});
+
 let ENV_LOADED = false;
 try { require('dotenv').config(); ENV_LOADED = true; } catch {}
 
+/* ─────────────────────────
+   1) 依存・基本設定
+───────────────────────── */
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const bcrypt  = require('bcrypt');
@@ -13,7 +26,9 @@ const fs      = require('fs');
 const fsp     = fs.promises;
 
 const app  = express();
-const PORT = process.env.PORT || 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
+const HOST = process.env.HOST || '0.0.0.0';
+
 const JWT_KEY = process.env.JWT_SECRET || 'weak-jwt-secret';
 const DEV_ROOT = String(process.env.ENABLE_DEV_ROOT || '').toLowerCase() === 'true';
 const DEV_ROOT_EMAIL = process.env.ADMIN_DEFAULT_EMAIL || 'root@local';
@@ -21,15 +36,21 @@ const DEV_ROOT_EMAIL = process.env.ADMIN_DEFAULT_EMAIL || 'root@local';
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// 静的ファイル（/public）
 app.use(express.static(path.join(__dirname, 'public')));
 
-// DB & Promise helpers
+/* ─────────────────────────
+   2) DB & Promise helpers
+───────────────────────── */
 const db = new sqlite3.Database(path.join(__dirname, 'shopping.db'));
 const dbAll = (sql, params=[]) => new Promise((res, rej)=> db.all(String(sql), params, (e, r)=> e?rej(e):res(r||[])));
 const dbGet = (sql, params=[]) => new Promise((res, rej)=> db.get(String(sql), params, (e, r)=> e?rej(e):res(r||null)));
 const dbRun = (sql, params=[]) => new Promise((res, rej)=> db.run(String(sql), params, function(e){ e?rej(e):res(this); }));
 
-// ---- 初期テーブル
+/* ─────────────────────────
+   3) 初期テーブル作成
+───────────────────────── */
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,7 +94,7 @@ db.serialize(() => {
     line_total INTEGER
   )`);
 
-  // ★ プロフィール（ユーザー1:1）
+  // ユーザープロファイル
   db.run(`CREATE TABLE IF NOT EXISTS user_profiles (
     user_id INTEGER PRIMARY KEY,
     display_name TEXT,
@@ -107,7 +128,9 @@ db.serialize(() => {
           VALUES (4,'Anime Hero','<img src=x onerror=alert(1)>',60,100,'https://picsum.photos/seed/hero/800/500')`);
 });
 
-// ---- admin/root を確保（デモ簡略）
+/* ─────────────────────────
+   4) admin/root を確保
+───────────────────────── */
 function ensureAdminBootstrap() {
   db.run(`INSERT OR IGNORE INTO users (username,email,password,role)
           VALUES ('admin','admin@shop.com','admin123','admin')`);
@@ -124,7 +147,9 @@ function ensureAdminBootstrap() {
 }
 ensureAdminBootstrap();
 
-// ---- utils/mw
+/* ─────────────────────────
+   5) 共通 utils / middleware
+───────────────────────── */
 const esc = s => String(s ?? '')
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
   .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
@@ -139,7 +164,9 @@ function requireAdmin(req,res,next){
   requireAuth(req,res,()=> (req.user?.role==='admin') ? next() : res.status(403).json({error:'forbidden'}));
 }
 
-// ---- 認証
+/* ─────────────────────────
+   6) 認証
+───────────────────────── */
 app.post('/api/login', async (req,res)=>{
   const { username='', password='' } = req.body||{};
   const uname = String(username).trim(); const pass = String(password);
@@ -168,7 +195,9 @@ app.post('/api/register', async (req,res)=>{
   }
 });
 
-// ---- プロフィールAPI（GET/PUT/パスワード変更）
+/* ─────────────────────────
+   7) プロフィールAPI
+───────────────────────── */
 app.get('/api/me', requireAuth, async (req,res)=>{
   try{
     const user = await dbGet(`SELECT id,username,email,role,created_at FROM users WHERE id=?`, [req.user.userId]);
@@ -184,11 +213,9 @@ app.get('/api/me', requireAuth, async (req,res)=>{
 
 app.put('/api/me', requireAuth, async (req,res)=>{
   try{
-    // users.email 同期（任意入力）
     const email = (req.body && typeof req.body.email==='string') ? String(req.body.email).trim() : undefined;
     if (email !== undefined) await dbRun(`UPDATE users SET email=? WHERE id=?`, [email, req.user.userId]);
 
-    // プロフィールの許可キーのみ受け取る
     const keys = ['display_name','full_name','phone','birthday','website','country','state','city',
                   'address1','address2','zip','timezone','bio','avatar_url','twitter','language','newsletter'];
     const data = {};
@@ -223,13 +250,15 @@ app.put('/api/me/password', requireAuth, async (req,res)=>{
     else { ok = (u.password === current); }
     if (!ok) return res.status(401).json({ error:'wrong_password' });
 
-    // 既存仕様に合わせて平文保存（教育用）。本番なら bcrypt.hash を使うこと。
+    // 教育用: 平文保存（本番は bcrypt.hash で）
     await dbRun(`UPDATE users SET password=? WHERE id=?`, [String(next), req.user.userId]);
     res.json({ ok:true });
   }catch(e){ res.status(500).json({ error:'db' }); }
 });
 
-// ---- products
+/* ─────────────────────────
+   8) products
+───────────────────────── */
 app.get('/api/products', async (req,res)=>{
   try{
     const { search } = req.query;
@@ -247,7 +276,9 @@ app.get('/api/product/:id', async (req,res)=>{
   }catch{ res.status(500).json({error:'DB error'}); }
 });
 
-// ---- 管理（ユーザー）
+/* ─────────────────────────
+   9) 管理（ユーザー）
+───────────────────────── */
 app.get('/api/admin/users', requireAdmin, async (_req,res)=>{
   try{ const rows = await dbAll(`SELECT id,username,email,role,created_at,password FROM users ORDER BY id`);
        res.json(rows); }
@@ -266,7 +297,9 @@ app.delete('/api/admin/users/:id', requireAdmin, async (req,res)=>{
   catch{ res.status(500).json({error:'DB error'}); }
 });
 
-// ---- 在庫編集（inventory.js が使うAPI）
+/* ─────────────────────────
+   10) 在庫編集（inventory.js 用）
+───────────────────────── */
 app.put('/api/admin/products/:id', requireAdmin, async (req,res)=>{
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad_id' });
@@ -288,13 +321,16 @@ app.post('/api/admin/products/:id/stock/add', requireAdmin, async (req,res)=>{
   let add = Math.round(Number(req.body?.add)); if(!Number.isFinite(add)) add = 0;
   add = Math.max(-100000, Math.min(100000, add));
   try{
+    // SQLite の MAX() は OK（stock+? が負でも 0 未満にならない）
     await dbRun(`UPDATE products SET stock=MAX(stock + ?, 0) WHERE id=?`, [add, id]);
     const row = await dbGet(`SELECT stock FROM products WHERE id=?`, [id]);
     res.json({ ok:true, stock: Math.max(0, Number(row.stock)||0) });
   }catch{ res.status(500).json({ error:'DB error' }); }
 });
 
-// ---- バックアップ（簡易）
+/* ─────────────────────────
+   11) 簡易バックアップ
+───────────────────────── */
 app.get('/api/admin/backups', requireAdmin, async (_req,res)=>{
   try{
     const dir = path.join(__dirname, 'backups');
@@ -338,7 +374,9 @@ app.delete('/api/admin/backup/:filename', requireAdmin, async (req,res)=>{
   }catch(e){ res.status(e && e.code==='ENOENT' ? 404 : 500).json({ ok:false }); }
 });
 
-// ====== 決済（在庫連動・スキーマ自動適応）
+/* ─────────────────────────
+   12) 決済（在庫連動・スキーマ自動適応）
+───────────────────────── */
 app.post('/api/checkout', requireAuth, async (req, res) => {
   try {
     const { items, cardLast4, name } = req.body || {};
@@ -455,7 +493,6 @@ app.post('/api/checkout', requireAuth, async (req, res) => {
       });
     });
 
-    // 常に文字の注文IDを返す（orders にコード列が無い DB でも OK）
     const returnId = (has('order_id') || has('order_code')) ? orderCode : String(txResult.internalId);
 
     res.json({ ok:true, orderId: returnId, subtotal, tax, total, last4 });
@@ -465,7 +502,9 @@ app.post('/api/checkout', requireAuth, async (req, res) => {
   }
 });
 
-// 直近の自分の注文
+/* ─────────────────────────
+   13) 直近の自分の注文
+───────────────────────── */
 app.get('/api/my-orders', requireAuth, async (req, res) => {
   try{
     const cols = await dbAll(`PRAGMA table_info('orders')`);
@@ -514,7 +553,9 @@ app.get('/api/my-orders', requireAuth, async (req, res) => {
   }catch(e){ console.error(e); res.json([]); }
 });
 
-// 注文詳細（orders / order_items の列差異に対応）
+/* ─────────────────────────
+   14) 注文詳細
+───────────────────────── */
 app.get('/api/orders/:orderId', requireAuth, async (req, res) => {
   try{
     const param = String(req.params.orderId || '');
@@ -522,7 +563,6 @@ app.get('/api/orders/:orderId', requireAuth, async (req, res) => {
     const oCols = await dbAll(`PRAGMA table_info('orders')`);
     const onames = new Set(oCols.map(c => c.name));
 
-    // どの列で探すか（order_id / order_code / id）
     let whereCol = null, whereVal = param;
     if (onames.has('order_id'))       whereCol = 'order_id';
     else if (onames.has('order_code'))whereCol = 'order_code';
@@ -543,7 +583,6 @@ app.get('/api/orders/:orderId', requireAuth, async (req, res) => {
     );
     if (!head) return res.status(404).json({ error:'not_found' });
 
-    // items 側
     const iCols = await dbAll(`PRAGMA table_info('order_items')`);
     const inames = new Set(iCols.map(c => c.name));
     const priceSel = inames.has('unit_price') ? 'unit_price AS unitPrice' : 'price AS unitPrice';
@@ -572,7 +611,9 @@ app.get('/api/orders/:orderId', requireAuth, async (req, res) => {
   }
 });
 
-// === 管理: 売上集計（qty/quantity どちらでもOK）
+/* ─────────────────────────
+   15) 管理: 売上集計
+───────────────────────── */
 app.get('/api/admin/sales-summary', requireAdmin, async (_req, res) => {
   const candidates = [
     `SELECT product_id, SUM(qty) AS sold FROM order_items GROUP BY product_id`,
@@ -590,7 +631,9 @@ app.get('/api/admin/sales-summary', requireAdmin, async (_req, res) => {
   }catch(e){ console.error('sales-summary', e); res.status(500).json({ error:'db' }); }
 });
 
-// === 管理: 売上履歴（時系列・購入者つき・スキーマ差異対応） ===
+/* ─────────────────────────
+   16) 管理: 売上履歴（events）
+───────────────────────── */
 app.get('/api/admin/sales-events', requireAdmin, async (req, res) => {
   try {
     const productId = Number(req.query.product_id || req.query.product || 0) || null;
@@ -612,7 +655,6 @@ app.get('/api/admin/sales-events', requireAdmin, async (req, res) => {
       ? /TEXT|CHAR|CLOB/i.test(String(orderIdCol.type || '')) || String(orderIdCol.type||'') === ''
       : false;
 
-    // JOIN 条件
     const joins = [];
     if (isTextOrderRef) {
       if (hasOrderId)   joins.push('oi.order_id = o.order_id');
@@ -667,7 +709,9 @@ app.get('/api/admin/sales-events', requireAdmin, async (req, res) => {
   }
 });
 
-// === 公開: ベストセラー Top N（未ログインOK／スキーマ差異対応）
+/* ─────────────────────────
+   17) 公開: ベストセラー
+───────────────────────── */
 app.get('/api/bestsellers', async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit || '10', 10), 50);
   const candidates = [
@@ -700,110 +744,208 @@ app.get('/api/bestsellers', async (req, res) => {
     })));
   }catch(e){ console.error('GET /api/bestsellers error:', e); res.status(500).json({ error:'failed_to_aggregate' }); }
 });
-// === 管理: 売上履歴タイムライン（最新→古い） =========================
-//   いろんなスキーマ差分（order_id / order_code / id、qty/quantity、unit_price/price、line_total）に耐える版
+
+// === 管理: 売上履歴タイムライン（最新→古い）: 全件取得 + 複数条件検索 + 異なるスキーマ吸収 ===
 app.get('/api/admin/sales-timeline', requireAdmin, async (req, res) => {
   try {
-    const limit  = Math.max(1, Math.min(200, parseInt(req.query.limit || '50', 10)));
-    const offset = Math.max(0, parseInt(req.query.offset || '0', 10));
+    // ---- パラメータ
+    const allFlag = String(req.query.all || '').trim() === '1';
+    const limit   = allFlag ? 5000 : Math.max(1, Math.min(200, parseInt(req.query.limit || '50', 10)));
+    const offset  = allFlag ? 0    : Math.max(0, parseInt(req.query.offset || '0', 10));
+    // カンマ/空白 区切りで複数ワード OK（部分一致）
+    const splitTokens = (v) =>
+      String(v || '')
+        .split(/[,\s]+/)
+        .map(s => s.trim())
+        .filter(Boolean);
 
-    // ordersの列状況
+    const userTokens    = splitTokens(req.query.user);
+    const productTokens = splitTokens(req.query.product);
+
+    // 金額フィルタは「行の小計（単価×数量）」にかけます
+    const minAmount = req.query.min ? Math.max(0, parseInt(req.query.min, 10) || 0) : null;
+    const maxAmount = req.query.max ? Math.max(0, parseInt(req.query.max, 10) || 0) : null;
+
+    // ---- スキーマ情報
     const oCols = await dbAll(`PRAGMA table_info('orders')`);
-    const oset  = new Set(oCols.map(c => c.name));
+    const iCols = await dbAll(`PRAGMA table_info('order_items')`).catch(() => []);
+    const oiCols = await dbAll(`PRAGMA table_info('orders_items')`).catch(() => []); // 古い/別名テーブルも吸収
+
+    const oset = new Set(oCols.map(c => c.name));
     const hasOrderId   = oset.has('order_id');
     const hasOrderCode = oset.has('order_code');
-    const hasSubtotal  = oset.has('subtotal');
-    const hasTax       = oset.has('tax');
-    const hasTotal     = oset.has('total');
+    const hasCreatedAt = oset.has('created_at');
+    const hasUserId    = oset.has('user_id');
 
-    // order_itemsの列状況
-    const iCols = await dbAll(`PRAGMA table_info('order_items')`);
-    const imap  = new Map(iCols.map(c => [c.name, c]));
-    const ihas  = n => imap.has(n);
-    const priceCol = ihas('unit_price') ? 'unit_price' : 'price';
-    const qtyCol   = ihas('qty')        ? 'qty'        : (ihas('quantity') ? 'quantity' : 'qty');
-    const hasLine  = ihas('line_total');
+    // order_items 系の列名揺れ
+    const mkItemInfo = (cols) => {
+      const map = new Map(cols.map(c => [c.name, c]));
+      const has = (n) => map.has(n);
+      const qtyCol   = has('qty') ? 'qty' : (has('quantity') ? 'quantity' : 'qty');
+      const priceCol = has('unit_price') ? 'unit_price' : (has('price') ? 'price' : 'price');
+      const hasLine  = has('line_total');
+      // order_id の型（文字なら orders の order_id / order_code と文字結合）
+      const type = String(map.get('order_id')?.type || '').toUpperCase();
+      const isTextId = type.includes('TEXT') || type.includes('CHAR') || type.includes('CLOB') || type === '';
+      return { qtyCol, priceCol, hasLine, isTextId };
+    };
 
-    // order_items.order_id の型（TEXT の場合は orders の order_id/order_code で結合）
-    const idColInfo = imap.get('order_id');
-    const idType = String(idColInfo?.type || '').toUpperCase(); // '' の可能性もある
-    const looksText = idType.includes('TEXT') || idType.includes('CHAR') || idType.includes('CLOB') || idType === '';
+    const item1 = iCols.length ? mkItemInfo(iCols)  : null; // order_items
+    const item2 = oiCols.length ? mkItemInfo(oiCols) : null; // orders_items
 
-    // 結合条件を用意
-    let joinCond = 'oi.order_id = o.id';
-    if (looksText && (hasOrderId || hasOrderCode)) {
-      // TEXT同士で安全に
-      if (hasOrderId && hasOrderCode) {
-        joinCond = '(oi.order_id = o.order_id OR oi.order_id = o.order_code)';
-      } else if (hasOrderId) {
-        joinCond = 'oi.order_id = o.order_id';
-      } else { // hasOrderCode
-        joinCond = 'oi.order_id = o.order_code';
-      }
-    }
+    if (!item1 && !item2) return res.json([]); // アイテム表が無い DB
 
-    // 文字の注文ID（UI 表示用）
+    // orders 側の表示用 ID と並び順
     const orderRefExpr = (hasOrderId || hasOrderCode)
       ? `(COALESCE(o.order_id, o.order_code, CAST(o.id AS TEXT)))`
       : `CAST(o.id AS TEXT)`;
+    const orderBy = hasCreatedAt ? 'datetime(o.created_at) DESC, o.id DESC' : 'o.id DESC';
 
-    // 合計（無いDBでも計算fallback）
-    const subtotalExpr = hasSubtotal
-      ? 'o.subtotal'
-      : (hasLine ? 'SUM(oi.line_total)' : `SUM( (oi.${priceCol}) * (oi.${qtyCol}) )`);
-    const taxExpr  = hasTax  ? 'o.tax'  : `CAST(ROUND( (${subtotalExpr}) * 0.1 ) AS INTEGER)`;
-    const totalExpr= hasTotal? 'o.total': `(${subtotalExpr}) + (${taxExpr})`;
+    // 共通 WHERE をつくる（UNION 両側で使う）
+    const whereParts = [];
+    const whereParams = [];
 
-    // products名のフォールバック（order_items.name優先、無ければ products.name）
-    // users.username（無い場合 email）、両方無ければ''。
-    const sql = `
+    // ユーザー：username / email 部分一致
+    if (userTokens.length) {
+      const perToken = userTokens.map(() => `(u.username LIKE ? OR u.email LIKE ?)`).join(' AND ');
+      whereParts.push(perToken);
+      userTokens.forEach(tok => { whereParams.push(`%${tok}%`, `%${tok}%`); });
+    }
+
+    // 製品名：部分一致（oi.name または products.name）
+    if (productTokens.length) {
+      const perToken = productTokens.map(() => `(COALESCE(oi.name, p.name, '') LIKE ?)`).join(' AND ');
+      whereParts.push(perToken);
+      productTokens.forEach(tok => whereParams.push(`%${tok}%`));
+    }
+
+    // 金額（行小計）
+    const addAmountWhere = (hasLine, priceCol, qtyCol) => {
+      const parts = [];
+      if (minAmount !== null) {
+        parts.push(`${hasLine ? 'oi.line_total' : `(oi.${priceCol} * oi.${qtyCol})`} >= ?`);
+        whereParams.push(minAmount);
+      }
+      if (maxAmount !== null) {
+        parts.push(`${hasLine ? 'oi.line_total' : `(oi.${priceCol} * oi.${qtyCol})`} <= ?`);
+        whereParams.push(maxAmount);
+      }
+      return parts.join(' AND ');
+    };
+
+    // JOIN 条件
+    const makeJoin = (isTextId) => {
+      if (isTextId) {
+        if (hasOrderId && hasOrderCode) return '(oi.order_id = o.order_id OR oi.order_id = o.order_code)';
+        if (hasOrderId)   return 'oi.order_id = o.order_id';
+        if (hasOrderCode) return 'oi.order_id = o.order_code';
+        return 'oi.order_id = CAST(o.id AS TEXT)';
+      }
+      return 'oi.order_id = o.id';
+    };
+
+    const selectCommon = `
       SELECT
-        o.id            AS orderInternalId,
+        ${hasCreatedAt ? 'o.created_at' : "datetime('now')"} AS created_at,
         ${orderRefExpr} AS orderRef,
-        o.created_at    AS created_at,
-        u.username      AS username,
-        u.email         AS email,
-        COALESCE(oi.name, p.name, '') AS product_name,
-        CAST(oi.${qtyCol} AS INTEGER) AS qty,
-        CAST(oi.${priceCol} AS INTEGER) AS unitPrice,
-        ${hasLine ? 'CAST(oi.line_total AS INTEGER)' : `CAST( (oi.${priceCol}) * (oi.${qtyCol}) AS INTEGER )`} AS lineTotal,
-        CAST(${subtotalExpr} AS INTEGER) AS subtotal,
-        CAST(${taxExpr}      AS INTEGER) AS tax,
-        CAST(${totalExpr}    AS INTEGER) AS total
+        COALESCE(u.username, u.email, '') AS user,
+        COALESCE(oi.name, p.name, '')     AS product,
+        CAST(oi.__QTY__ AS INTEGER)       AS qty,
+        CAST(oi.__PRICE__ AS INTEGER)     AS unit,
+        CAST(__LINE_TOTAL__ AS INTEGER)   AS line
       FROM orders o
-        JOIN order_items oi ON ${joinCond}
-        LEFT JOIN products p ON p.id = oi.product_id
-        LEFT JOIN users    u ON u.id = o.user_id
-      ORDER BY
-        datetime(o.created_at) DESC, o.id DESC, oi.id DESC
-      LIMIT ? OFFSET ?`;
+      JOIN __ITEM_TABLE__ oi ON __JOIN_COND__
+      LEFT JOIN products p ON p.id = oi.product_id
+      LEFT JOIN users    u ON ${hasUserId ? 'u.id = o.user_id' : '1=1'}
+    `;
 
-    const rows = await dbAll(sql, [limit, offset]);
+    const unions = [];
+    const params = [];
 
-    // ユーザー名整形
-    const out = rows.map(r => ({
-      orderRef : String(r.orderRef || r.orderInternalId || ''),
+    const buildOne = (tableName, info) => {
+      if (!info) return;
+      const join = makeJoin(info.isTextId);
+      const lineExpr = info.hasLine ? 'oi.line_total' : `(oi.${info.priceCol} * oi.${info.qtyCol})`;
+      const amountWhere = addAmountWhere(info.hasLine, info.priceCol, info.qtyCol);
+
+      let sql = selectCommon
+        .replace('__ITEM_TABLE__', tableName)
+        .replace('__JOIN_COND__', join)
+        .replace('__QTY__', info.qtyCol)
+        .replace('__PRICE__', info.priceCol)
+        .replace('__LINE_TOTAL__', lineExpr);
+
+      const parts = [...whereParts];
+      if (amountWhere) parts.push(amountWhere);
+
+      if (parts.length) sql += `\nWHERE ${parts.join(' AND ')}`;
+
+      unions.push(sql);
+      params.push(...whereParams);   // それぞれの UNION に同じバインドを繰り返す
+    };
+
+    buildOne('order_items',  item1);
+    buildOne('orders_items', item2);
+
+    if (!unions.length) return res.json([]);
+
+    // ★ all=1 のときは LIMIT/OFFSET を完全に外す（本当に全件）
+    let finalSql, finalParams;
+    if (allFlag) {
+      finalSql    = `${unions.join('\nUNION ALL\n')}\nORDER BY ${orderBy}`;
+      finalParams = params;
+    } else {
+      finalSql    = `${unions.join('\nUNION ALL\n')}\nORDER BY ${orderBy}\nLIMIT ? OFFSET ?`;
+      finalParams = [...params, limit, offset];
+    }
+
+    const rows = await dbAll(finalSql, finalParams);
+
+    res.json(rows.map(r => ({
       created_at: r.created_at,
-      user     : (r.username || r.email || ''),
-      product  : r.product_name || '',
-      qty      : Math.max(0, Number(r.qty) || 0),
-      unit     : Math.max(0, Number(r.unitPrice) || 0),
-      line     : Math.max(0, Number(r.lineTotal) || 0),
-      subtotal : Math.max(0, Number(r.subtotal) || 0),
-      tax      : Math.max(0, Number(r.tax) || 0),
-      total    : Math.max(0, Number(r.total) || 0),
-    }));
-
-    res.json(out);
+      orderRef  : String(r.orderRef || ''),
+      user      : r.user || '',
+      product   : r.product || '',
+      qty       : Math.max(0, Number(r.qty)  || 0),
+      unit      : Math.max(0, Number(r.unit) || 0),
+      line      : Math.max(0, Number(r.line) || 0),
+    })));
   } catch (e) {
     console.error('[sales-timeline]', e);
     res.status(500).json({ error: 'db' });
   }
 });
-// ---- 静的
-app.get('/', (_req,res)=> res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
-app.listen(PORT, ()=>{
+// ---- 静的（トップ）と 404
+app.get('/', (_req,res)=> res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.use((req,res) => res.status(404).json({ error: 'not_found' }));
+
+// ---- 共通エラーハンドラ（落ちないようにする）
+app.use((err, _req, res, _next) => {
+  console.error('[UNHANDLED]', err && err.stack ? err.stack : err);
+  try {
+    res.status(500).json({ error: 'server_error' });
+  } catch {}
+});
+
+// ---- 起動（listen）とポート競合の検出
+const server = app.listen(PORT, () => {
   console.log(`Vulnerable shopping site running on port ${PORT}`);
   console.log(`[ENV] dotenv loaded: ${ENV_LOADED} | ENABLE_DEV_ROOT=${DEV_ROOT} | ADMIN_DEFAULT_EMAIL=${DEV_ROOT_EMAIL} | JWT_SECRET=${process.env.JWT_SECRET ? '(set)' : '(not set)'}`);
+});
+server.on('error', (e) => {
+  if (e && e.code === 'EADDRINUSE') {
+    console.error(`[FATAL] Port ${PORT} is already in use. 別プロセスが使っています。`);
+  } else {
+    console.error('[FATAL] server listen error:', e);
+  }
+  process.exit(1);
+});
+
+// ---- 予期せぬ例外でプロセスが死なないよう保険
+process.on('uncaughtException', (e) => {
+  console.error('[uncaughtException]', e);
+});
+process.on('unhandledRejection', (e) => {
+  console.error('[unhandledRejection]', e);
 });
