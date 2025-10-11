@@ -1,162 +1,149 @@
-// public/js/admin.js — Admin：ユーザー＆バックアップ + ナビは script.js に委譲
+// public/js/admin.js — Admin: ユーザー管理 + DBバックアップ
 (() => {
-  if (window.__ADMIN_WIRED__) return; window.__ADMIN_WIRED__ = true;
-  const $ = s => document.querySelector(s);
+  if (window.__ADMIN_JS_LOADED__) return; window.__ADMIN_JS_LOADED__ = true;
 
-  // ---- small utils
+  const $ = (s, r=document) => r.querySelector(s);
+
+  // ---- fetch helper with Bearer
   const token = () => localStorage.getItem('token') || '';
-  const authHdr = () => ({ Authorization: 'Bearer ' + token(), 'Content-Type':'application/json' });
-  const fmtSize = b => (b/1024/1024).toFixed(2) + ' MB';
-  const fmtDate = ms => new Date(ms).toLocaleString();
+  const authHdr = () => (token() ? { Authorization: 'Bearer ' + token() } : {});
+  const jfetch = async (url, opt={}) => {
+    const res = await fetch(url, { ...opt, headers: { 'Content-Type':'application/json', ...authHdr(), ...(opt.headers||{}) }});
+    let data=null; try{ data = await res.json(); }catch{}
+    if (!res.ok) throw new Error(data?.error || String(res.status));
+    return data ?? {};
+  };
 
-  function toast(msg, ms=1300){
+  // ---- tiny toast
+  function toast(msg, ms=1400){
     let host = $('#toaster');
-    if(!host){ host=document.createElement('div'); host.id='toaster';
-      host.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:9999;display:grid;gap:8px;';
+    if(!host){
+      host = document.createElement('div');
+      host.id = 'toaster';
+      host.style.cssText = 'position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:9999;display:grid;gap:8px';
       document.body.appendChild(host);
     }
-    const el=document.createElement('div');
-    el.textContent=msg;
-    el.style.cssText='padding:8px 12px;border-radius:10px;border:1px solid #2b3a5a;background:#0f1729;color:#e9edf6;box-shadow:0 6px 24px rgba(0,0,0,.35);font-weight:600;';
-    host.appendChild(el); setTimeout(()=>el.remove(), ms);
-  }
-  async function api(path, opt={}){
-    const r = await fetch(path, { ...opt, headers: { ...authHdr(), ...(opt.headers||{}) } });
-    const d = await r.json().catch(()=>({}));
-    if (!r.ok) throw new Error(d.error || r.status);
-    return d;
+    const el = document.createElement('div');
+    el.textContent = msg;
+    el.style.cssText = 'padding:8px 12px;border:1px solid #2b3a5a;border-radius:10px;background:#0f1729;color:#e9edf6;box-shadow:0 6px 22px rgba(0,0,0,.35);font-weight:600';
+    host.appendChild(el);
+    setTimeout(()=>el.remove(), ms);
   }
 
-  // ===== Users =====
+  /* ===================== Users ===================== */
   async function loadUsers(){
-    const tbody = $('#userTbody'); if (!tbody) return;
+    const tbody = $('#userTbody') || $('#usersTbody');
+    if (!tbody) return;
+    const esc = s => String(s ?? '').replace(/"/g,'&quot;');
+
     try{
-      const users = await api('/api/admin/users');
-      tbody.innerHTML = users.map(u => {
+      const users = await jfetch('/api/admin/users');
+      tbody.innerHTML = users.map(u=>{
         const isRoot = String(u.username).toLowerCase()==='root';
-        const dis = isRoot ? 'disabled title="root は変更不可"' : '';
-        return `<tr class="adm-row">
+        const dis    = isRoot ? 'disabled' : '';
+        return `<tr data-id="${u.id}" data-username="${u.username}">
           <td>${u.id}</td>
           <td>${u.username}</td>
-          <td><input type="email" value="${u.email||''}" data-uid="${u.id}" class="adm-inp adm-mail" style="width:220px"></td>
-          <td><input type="text" value="${u.password||''}" data-uid="${u.id}" class="adm-inp adm-pass" style="width:160px" ${isRoot?'readonly':''}></td>
+          <td><input class="adm-mail input-xs input-stretch" type="email" value="${esc(u.email)}" ${isRoot?'readonly':''}></td>
+          <td><input class="adm-pass input-xs input-stretch" type="text"  value="${esc(u.password)}" ${isRoot?'readonly':''}></td>
           <td>${u.role}</td>
           <td>${(u.created_at||'').replace('T',' ').replace('.000Z','')}</td>
-          <td>
-            <div class="btn-group" style="display:flex;gap:8px;flex-wrap:wrap;">
-              <button class="btn btn-ghost btn-xs adm-edit" data-uid="${u.id}" ${dis}>編集</button>
-              <button class="btn btn-danger btn-xs adm-del" data-uid="${u.id}" ${isRoot?'disabled':''}>削除</button>
+          <td class="controls">
+            <div class="btn-gap">
+              <button class="btn btn-info  btn-xs adm-edit" data-uid="${u.id}" ${dis}>編集</button>
+              <button class="btn btn-danger btn-xs adm-del"  data-uid="${u.id}" ${dis}>削除</button>
             </div>
           </td>
         </tr>`;
       }).join('');
     }catch(e){
-      console.error(e);
-      tbody.innerHTML = `<tr class="adm-row"><td colspan="7" style="color:#ff8a8a">ユーザー読み込み失敗</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" style="color:#ff8a8a">ユーザー取得失敗: ${e.message}</td></tr>`;
     }
   }
 
-  // 保存/削除
+  // 編集/削除（※メール更新は /api/admin/users/:id の PUT、パスワードは /password）
   document.addEventListener('click', async (ev)=>{
     const edit = ev.target.closest('.adm-edit');
     const del  = ev.target.closest('.adm-del');
+
     if (edit){
-      const id = Number(edit.dataset.uid);
-      const mail = document.querySelector(`.adm-mail[data-uid="${id}"]`)?.value || '';
-      const pass = document.querySelector(`.adm-pass[data-uid="${id}"]`)?.value || '';
+      const tr   = edit.closest('tr');
+      const id   = Number(edit.dataset.uid || tr?.dataset.id);
+      const mail = tr?.querySelector('.adm-mail')?.value?.trim() ?? '';
+      const pass = tr?.querySelector('.adm-pass')?.value ?? '';
       try{
-        await api(`/api/admin/users/${id}/email`, { method:'PUT', body: JSON.stringify({ email: mail }) });
-        if (pass) await api(`/api/admin/users/${id}/password`, { method:'PUT', body: JSON.stringify({ password: pass }) });
-        toast('更新しました');
-        await loadUsers();
+        if (pass !== '') await jfetch(`/api/admin/users/${id}/password`, { method:'PUT', body: JSON.stringify({ password: pass }) });
+        if (mail !== '') await jfetch(`/api/admin/users/${id}`,           { method:'PUT', body: JSON.stringify({ email: mail }) });
+        toast('更新しました'); loadUsers();
       }catch(e){ alert('更新失敗: '+e.message); }
+      return;
     }
+
     if (del){
-      const id = Number(del.dataset.uid);
+      const id = Number(del.dataset.uid || del.closest('tr')?.dataset.id);
       if (!confirm(`ユーザー #${id} を削除しますか？`)) return;
-      try{
-        await api(`/api/admin/users/${id}`, { method:'DELETE' });
-        toast('削除しました');
-        await loadUsers();
-      }catch(e){ alert('削除失敗: '+e.message); }
+      try{ await jfetch(`/api/admin/users/${id}`, { method:'DELETE' }); toast('削除しました'); loadUsers(); }
+      catch(e){ alert('削除失敗: '+e.message); }
     }
   });
 
-  // ===== Backups =====
+  /* =================== Backups ===================== */
+  const fmtSize = b => b>=1024*1024 ? (b/1024/1024).toFixed(1)+' MB' : (b>=1024 ? (b/1024|0)+' KB' : (b||0)+' B');
+  const fmtDate = ms => new Date(ms).toLocaleString();
+
   async function loadBackups(){
-    const tbody = $('#backupTbody'); const empty = $('#backupEmpty');
+    const tbody = $('#backupTbody') || $('#bkTbody');
     if (!tbody) return;
     try{
-      const list = await api('/api/admin/backups');
-      if (!list.length){ tbody.innerHTML=''; empty.style.display='block'; return; }
-      empty.style.display='none';
+      const list = await jfetch('/api/admin/backups');
+      if (!list.length){ tbody.innerHTML=''; return; }
       tbody.innerHTML = list.map(b => `
-        <tr class="adm-row">
-          <td class="bk-name">${b.filename}</td>
-          <td style="text-align:right">${fmtSize(b.size)}</td>
-          <td>${fmtDate(b.mtime)}</td>
-          <td class="bk-ops">
-            <div class="btn-group" style="display:flex;gap:8px;flex-wrap:wrap;">
-              <button class="btn btn-warning btn-xs act-restore" data-fn="${encodeURIComponent(b.filename)}">リストア</button>
-              <button class="btn btn-danger  btn-xs act-delbk"   data-fn="${encodeURIComponent(b.filename)}">削除</button>
-            </div>
+        <tr>
+          <td>${b.filename || b.name}</td>
+          <td style="text-align:right">${fmtSize(b.size)} / ${fmtDate(b.mtime || b.mtimeMs || Date.now())}</td>
+          <td>
+            <button class="btn btn-warning btn-xs act-restore" data-fn="${encodeURIComponent(b.filename || b.name)}">リストア</button>
+            <button class="btn btn-danger  btn-xs act-delbk"   data-fn="${encodeURIComponent(b.filename || b.name)}">削除</button>
           </td>
-        </tr>
-      `).join('');
+        </tr>`).join('');
     }catch(e){
-      console.error(e);
-      tbody.innerHTML = `<tr class="adm-row"><td colspan="4" style="color:#ff8a8a">バックアップ一覧の取得に失敗</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="3" style="color:#ff8a8a">バックアップ一覧失敗: ${e.message}</td></tr>`;
     }
   }
 
-  // 作成
-  $('#backupMake')?.addEventListener('click', async ()=>{
-    const name = ($('#backupName')?.value || '').trim();
-    try{
-      await api('/api/admin/backup', { method:'POST', body: JSON.stringify({ name }) });
-      toast('バックアップを作成しました');
-      $('#backupName').value = '';
-      await loadBackups();
-    }catch(e){ alert('バックアップ作成に失敗: '+e.message); }
-  });
-
-  // 復元 / 削除
+  // 作成 / リストア / 削除
   document.addEventListener('click', async (ev)=>{
     const rs = ev.target.closest('.act-restore');
     const dl = ev.target.closest('.act-delbk');
+
     if (rs){
-      const fn = decodeURIComponent(rs.dataset.fn || '');
+      const fn = decodeURIComponent(rs.dataset.fn||'');
       if (!confirm(`"${fn}" からDBをリストアします。現在の DB は上書きされます。よろしいですか？`)) return;
-      try{
-        await api('/api/admin/restore', { method:'POST', body: JSON.stringify({ filename: fn }) });
-        toast('リストアしました（ページを再読み込みしてください）', 2000);
-      }catch(e){ alert('リストア失敗: '+e.message); }
+      try{ await jfetch('/api/admin/restore',{ method:'POST', body: JSON.stringify({ filename: fn, name: fn }) }); toast('リストアしました'); }
+      catch(e){ alert('リストア失敗: '+e.message); }
+      return;
     }
+
     if (dl){
-      const fn = decodeURIComponent(dl.dataset.fn || '');
+      const fn = decodeURIComponent(dl.dataset.fn||'');
       if (!confirm(`バックアップ "${fn}" を削除しますか？`)) return;
-      try{
-        await api('/api/admin/backup/' + encodeURIComponent(fn), { method:'DELETE' });
-        toast('削除しました');
-        await loadBackups();
-      }catch(e){ alert('削除失敗: '+e.message); }
+      try{ await jfetch('/api/admin/backup/'+encodeURIComponent(fn), { method:'DELETE' }); toast('削除しました'); loadBackups(); }
+      catch(e){ alert('削除失敗: '+e.message); }
     }
   });
 
   // boot
-  document.addEventListener('DOMContentLoaded', async ()=>{
-    await loadUsers();
-    await loadBackups();
+  document.addEventListener('DOMContentLoaded', ()=>{
+    // 作成ボタン（IDはどちらでも拾う）
+    (document.querySelector('#createBackupBtn') || document.querySelector('#backupMake'))
+      ?.addEventListener('click', async ()=>{
+        const raw = (document.querySelector('#backupName')?.value || '').trim();
+        try{ await jfetch('/api/admin/backup', { method:'POST', body: JSON.stringify({ name: raw }) });
+             toast('バックアップを作成しました'); loadBackups(); }
+        catch(e){ alert('作成失敗: '+e.message); }
+      });
 
-    // === ナビは script.js に任せる（重複防止） ===
-    if (typeof window.updateAdminNav === 'function') window.updateAdminNav();
-
-    // 念のため重複があれば除去（href ベース / このページだけ）
-    const dedupe = (selector) => {
-      const list = Array.from(document.querySelectorAll(selector));
-      list.slice(1).forEach(el => el.remove());
-    };
-    dedupe('.nav-links a[href$="inventory.html"]');
-    dedupe('.nav-links a[href$="admin.html"]');
+    loadUsers();
+    loadBackups();
   });
 })();

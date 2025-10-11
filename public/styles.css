@@ -227,3 +227,86 @@ body.modal-open{overflow:hidden;}
 .best-card:nth-child(1) .best-rank{ background:#ffd700; color:#1a1a1a; }
 .best-card:nth-child(2) .best-rank{ background:#c0c0c0; color:#1a1a1a; }
 .best-card:nth-child(3) .best-rank{ background:#cd7f32; color:#1a1a1a; }
+/* ===== Sales History Filters (dark theme, exact) ===== */
+.admin-section .filters input.input,
+.admin-section .filters input[type="text"],
+.admin-section .filters input[type="number"],
+.admin-section .filters input[type="search"],
+.admin-section .filters select {
+  height: 44px;                 /* 行高さを固定 */
+  padding: 0 14px;
+  background: #0f172a;          /* 背景を濃紺で統一 */
+  color: #e5e7eb;               /* 文字色 */
+  border: 1px solid #334155;    /* 枠 */
+  border-radius: 12px;          /* 角丸は大きめ */
+  outline: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.03);
+  transition: border-color .15s ease, box-shadow .15s ease;
+  caret-color: #e5e7eb;
+}
+
+.admin-section .filters input.input::placeholder,
+.admin-section .filters input::placeholder {
+  color: #94a3b8;               /* プレースホルダを薄く */
+  opacity: .95;
+}
+
+/* フォーカス時の青いハイライト */
+.admin-section .filters input.input:focus,
+.admin-section .filters input:focus,
+.admin-section .filters select:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgba(96,165,250,.35);
+}
+
+/* 無効時（読み込み中など） */
+.admin-section .filters input:disabled,
+.admin-section .filters select:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+/* Chrome等のオートフィルの黄背景を抑止 */
+.admin-section .filters input.input:-webkit-autofill,
+.admin-section .filters input:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0px 1000px #0f172a inset !important;
+  -webkit-text-fill-color: #e5e7eb !important;
+  caret-color: #e5e7eb;
+  transition: background-color 50000s ease-in-out 0s; /* 背景チラつき防止 */
+}
+
+/* モバイルでのズーム抑止（フォントサイズ） */
+@media (max-width: 480px) {
+  .admin-section .filters input.input,
+  .admin-section .filters input,
+  .admin-section .filters select {
+    font-size: 16px;
+  }
+}
+/* admin users table inputs fit cell */
+#usersTable input.input-xs,
+#usersTable .adm-mail,
+#usersTable .adm-pass {
+  width: 100%;
+  max-width: 240px;
+  box-sizing: border-box;
+}
+/* Admin users table: inputs should fill the cell */
+#usersTable input.input-stretch,
+#usersTable .adm-mail,
+#usersTable .adm-pass {
+  width: 100%;
+  max-width: 320px;
+  box-sizing: border-box;
+}
+
+/* 多少の余白確保（列の最小幅） */
+#usersTable td:nth-child(3),
+#usersTable td:nth-child(4) {
+  min-width: 240px;
+}
+#usersTable input.input-stretch,
+#userTbody  input.input-stretch,
+#usersTable .adm-mail, #usersTable .adm-pass {
+  width: 100%; max-width: 320px; box-sizing: border-box;
+}

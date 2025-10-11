@@ -44,6 +44,7 @@
   </header>
 
   <main class="admin-wrap">
+    <!-- ユーザー一覧 -->
     <section class="panel">
       <h2>ユーザー一覧</h2>
       <div class="table-wrap">
@@ -59,17 +60,18 @@
               <th class="w-180">操作</th>
             </tr>
           </thead>
-          <tbody id="usersTbody"></tbody>
+          <tbody id="userTbody"></tbody>
         </table>
       </div>
       <div class="note">※ root は削除・パスワード変更不可</div>
     </section>
 
+    <!-- DBバックアップ -->
     <section class="panel">
       <h2>DB バックアップ</h2>
       <div class="btn-gap" style="margin-bottom:12px;">
         <input id="backupName" class="input-xs w-220" placeholder="任意の名前（英数-_）" />
-        <button id="createBackupBtn" class="btn btn-primary btn-xs">DBバックアップ作成</button>
+        <button id="backupMake" class="btn btn-primary btn-xs">DBバックアップ作成</button>
       </div>
 
       <div class="table-wrap">
@@ -81,321 +83,17 @@
               <th class="w-220">操作</th>
             </tr>
           </thead>
-          <tbody id="bkTbody"></tbody>
+          <tbody id="backupTbody"></tbody>
         </table>
       </div>
     </section>
   </main>
 
   <div id="toaster"></div>
-  <script>
-    // 管理API用 fetch ラッパ（必ず Bearer を付ける）
-    async function adminFetch(url, opt={}){
-      const token = (window.Auth && Auth.getToken && Auth.getToken()) || localStorage.getItem('token') || '';
-      const headers = Object.assign(
-        { 'Content-Type':'application/json' },
-        opt.headers||{},
-        token ? { 'Authorization': `Bearer ${token}` } : {}
-      );
-      const res = await fetch(url, Object.assign({}, opt, { headers }));
-      const data = await res.json().catch(()=> ({}));
-      if (!res.ok) throw new Error(data?.error || res.status);
-      return data;
-    }
-  
-    // 例: ユーザー一覧
-    async function loadUsers(){
-      try {
-        const users = await adminFetch('/api/admin/users');
-        // ... ここでテーブル描画（既存ロジックそのまま）
-      } catch (e) {
-        console.error(e);
-        alert('ユーザー一覧の取得に失敗しました');
-      }
-    }
-  
-    // 例: バックアップ一覧
-    async function loadBackups(){
-      try {
-        const rows = await adminFetch('/api/admin/backups');
-        // ... ここでバックアップ表描画（既存ロジックそのまま）
-      } catch (e) {
-        console.error(e);
-        const box = document.getElementById('bkListNotice');
-        if (box) box.textContent = 'バックアップ一覧の取得に失敗（HTTP 500）';
-      }
-    }
-  
-    document.addEventListener('DOMContentLoaded', ()=>{
-      // admin 以外はリダイレクト
-      try { if (!(Auth && Auth.isAdmin && Auth.isAdmin())) location.href = './index.html'; } catch {}
-      loadUsers();
-      loadBackups();
-    });
-  </script>
-  
-  <script>
-    // ====== Robust token/user detection ======
-    const tokenKeyCandidates = ['token','jwt','jwt_token','authToken','access_token'];
-    const userKeyCandidates  = ['user','me','profile'];
 
-    const storageProbe = (keys, src) => {
-      for (const k of keys) {
-        try {
-          const v = src.getItem(k);
-          if (v) return v;
-        } catch {}
-      }
-      return '';
-    };
-
-    // ★ 正規表現なしの安全な Cookie 取得
-    function readCookie(name){
-      const parts = document.cookie ? document.cookie.split(';') : [];
-      for (const part of parts){
-        const p = part.trim();
-        if (!p) continue;
-        const eq = p.indexOf('=');
-        const key = eq >= 0 ? p.slice(0, eq) : p;
-        if (key === name){
-          return eq >= 0 ? decodeURIComponent(p.slice(eq+1)) : '';
-        }
-      }
-      return '';
-    }
-
-    function detectToken(){
-      // localStorage / sessionStorage
-      let t = storageProbe(tokenKeyCandidates, localStorage) || storageProbe(tokenKeyCandidates, sessionStorage);
-      if (t) return t;
-      // cookie
-      for (const k of tokenKeyCandidates){
-        t = readCookie(k);
-        if (t) return t;
-      }
-      return '';
-    }
-
-    function detectUser(){
-      for (const k of userKeyCandidates){
-        try{
-          const v = localStorage.getItem(k) || sessionStorage.getItem(k);
-          if (v) return JSON.parse(v);
-        }catch{}
-      }
-      return null;
-    }
-
-    const auth = {
-      get token(){ return detectToken(); },
-      get user(){ return detectUser(); }
-    };
-
-    const authHeader = () => auth.token ? { 'Authorization': 'Bearer ' + auth.token } : {};
-
-    function toast(msg){
-      let t = document.querySelector('#toaster');
-      if(!t){ t=document.createElement('div'); t.id='toaster'; document.body.appendChild(t); }
-      const n = document.createElement('div'); n.textContent = msg;
-      t.appendChild(n); setTimeout(()=>n.remove(), 1600);
-    }
-
-    // ====== Admin guard ======
-    async function guardAdmin(){
-      const pill = document.querySelector('#navUser');
-      if (pill && auth.user?.username){ pill.hidden=false; pill.style.display='inline-block'; pill.textContent = auth.user.username; }
-
-      if (!auth.token){
-        location.href='/index.html'; return;
-      }
-      try{
-        const res = await fetch('/api/me', { headers: authHeader() });
-        if (!res.ok){ throw new Error('me '+res.status); }
-        const j = await res.json();
-        if (!j?.user || j.user.role!=='admin'){ location.href='/index.html'; }
-      }catch{
-        location.href='/index.html';
-      }
-    }
-
-    // ====== Users ======
-    function showUsersErrorRow(message){
-      const tb = document.querySelector('#usersTbody');
-      tb.innerHTML = `<tr><td colspan="7">${message}</td></tr>`;
-    }
-
-    async function loadUsers(){
-      const tb = document.querySelector('#usersTbody');
-      tb.innerHTML = `<tr><td colspan="7">読み込み中…</td></tr>`;
-      try{
-        const res = await fetch('/api/admin/users', { headers: authHeader() });
-        if (!res.ok){
-          if (res.status===401 || res.status===403){
-            showUsersErrorRow('権限エラー（未ログイン/トークン不一致）。ログアウト→再ログインしてください。');
-          } else {
-            showUsersErrorRow('ユーザー一覧の取得に失敗しました（HTTP '+res.status+'）');
-          }
-          return;
-        }
-        const list = await res.json();
-        if (!Array.isArray(list) || list.length===0){
-          showUsersErrorRow('データがありません'); return;
-        }
-        tb.innerHTML = list.map(u=>{
-          const isRoot = String(u.username).toLowerCase()==='root';
-          const dis = isRoot ? 'disabled' : '';
-          const mail = u.email||'';
-          const pw   = u.password||'';
-          return `
-            <tr data-id="${u.id}" data-username="${u.username}">
-              <td>${u.id}</td>
-              <td>${u.username}</td>
-              <td><input class="input-xs email" value="${mail.replace(/"/g,'&quot;')}" ${isRoot?'readonly':''}></td>
-              <td><input class="input-xs pass"  value="${pw.replace(/"/g,'&quot;')}" ${isRoot?'readonly':''}></td>
-              <td>${u.role}</td>
-              <td>${u.created_at||''}</td>
-              <td class="controls">
-                <div class="btn-gap">
-                  <button class="btn btn-info btn-xs edit" ${dis}>編集</button>
-                  <button class="btn btn-danger btn-xs del" ${dis}>削除</button>
-                </div>
-              </td>
-            </tr>
-          `;
-        }).join('');
-
-        // 編集
-        document.querySelectorAll('.edit').forEach(b=>b.addEventListener('click', async (e)=>{
-          const tr = e.currentTarget.closest('tr');
-          const id = +tr.dataset.id;
-          const email = tr.querySelector('.email').value.trim();
-          const pass  = tr.querySelector('.pass').value;
-
-          let ok1=true, ok2=true;
-          if (pass!==''){
-            const r1 = await fetch(`/api/admin/users/${id}/password`, {
-              method:'PUT',
-              headers: { 'Content-Type':'application/json', ...authHeader() },
-              body: JSON.stringify({ password: pass })
-            }); ok1 = r1.ok;
-          }
-          try{
-            const r2 = await fetch(`/api/admin/users/${id}`, {
-              method:'PUT',
-              headers: { 'Content-Type':'application/json', ...authHeader() },
-              body: JSON.stringify({ email })
-            });
-            ok2 = r2.ok || r2.status===404 || r2.status===405;
-          }catch{}
-          toast((ok1&&ok2)?'保存しました':'保存に失敗しました');
-          loadUsers();
-        }));
-
-        // 削除
-        document.querySelectorAll('.del').forEach(b=>b.addEventListener('click', async (e)=>{
-          const tr = e.currentTarget.closest('tr');
-          const id = +tr.dataset.id;
-          const name = tr.dataset.username;
-          if (!confirm(`${name} を削除しますか？`)) return;
-          const r = await fetch(`/api/admin/users/${id}`, { method:'DELETE', headers: authHeader() });
-          toast(r.ok?'削除しました':'削除に失敗しました');
-          loadUsers();
-        }));
-
-      }catch(err){
-        console.error(err);
-        showUsersErrorRow('ユーザー一覧の取得に失敗しました（ネットワーク）');
-      }
-    }
-
-    // ====== Backups ======
-    function bkErrorRow(msg){
-      const tb = document.querySelector('#bkTbody');
-      tb.innerHTML = `<tr><td colspan="3">${msg}</td></tr>`;
-    }
-
-    function fmtSize(b){ if (b==null) return '-'; const mb=+b/1024/1024; return (mb<1?(mb*1024).toFixed(0)+' KB':mb.toFixed(2)+' MB'); }
-
-    async function loadBackups(){
-      const tb = document.querySelector('#bkTbody');
-      tb.innerHTML = `<tr><td colspan="3">読み込み中…</td></tr>`;
-      try{
-        const res = await fetch('/api/admin/backups', { headers: authHeader() });
-        if (!res.ok){ bkErrorRow('バックアップ一覧の取得に失敗（HTTP '+res.status+'）'); return; }
-        const list = await res.json();
-        if (!Array.isArray(list) || list.length===0){ bkErrorRow('バックアップがありません'); return; }
-        tb.innerHTML = list.map(b=>`
-          <tr data-name="${b.name}">
-            <td>${b.name}</td>
-            <td>${fmtSize(b.size)} / ${b.created_at||''}</td>
-            <td>
-              <div class="backup-ops">
-                <button class="btn btn-warning btn-xs restore">リストア</button>
-                <button class="btn btn-danger  btn-xs remove">削除</button>
-              </div>
-            </td>
-          </tr>
-        `).join('');
-
-        document.querySelectorAll('.restore').forEach(x=>x.addEventListener('click', async (e)=>{
-          const name = e.currentTarget.closest('tr').dataset.name;
-          if (!confirm(`${name} をリストアします。よろしいですか？`)) return;
-          const r = await fetch('/api/admin/restore', {
-            method:'POST', headers:{ 'Content-Type':'application/json', ...authHeader() },
-            body: JSON.stringify({ name })
-          });
-          toast(r.ok?'リストアしました（再起動が必要な場合あり）':'リストアに失敗しました');
-        }));
-
-        document.querySelectorAll('.remove').forEach(x=>x.addEventListener('click', async (e)=>{
-          const name = e.currentTarget.closest('tr').dataset.name;
-          if (!confirm(`${name} を削除します。よろしいですか？`)) return;
-          const r = await fetch(`/api/admin/backups/${encodeURIComponent(name)}`, {
-            method:'DELETE', headers: authHeader()
-          });
-          toast(r.ok?'削除しました':'削除に失敗しました');
-          loadBackups();
-        }));
-
-      }catch{
-        bkErrorRow('バックアップ一覧の取得に失敗（ネットワーク）');
-      }
-    }
-
-    async function createBackup(){
-      const name = document.querySelector('#backupName').value.trim();
-      const r = await fetch('/api/backup', {
-        method:'POST',
-        headers:{ 'Content-Type':'application/json', ...authHeader() },
-        body: JSON.stringify({ backupName: name || 'backup' })
-      });
-      toast(r.ok?'バックアップを作成しました':'バックアップに失敗しました');
-      loadBackups();
-    }
-
-    // ====== boot ======
-    document.addEventListener('DOMContentLoaded', async ()=>{
-      await guardAdmin();
-
-      document.querySelector('#logoutBtn')?.addEventListener('click', ()=>{
-        // 可能性のあるキーを総掃除
-        [...tokenKeyCandidates, ...userKeyCandidates].forEach(k=>{
-          localStorage.removeItem(k); sessionStorage.removeItem(k);
-        });
-        // cookie も掃除
-        document.cookie.split(';').forEach(c=>{
-          const [n] = c.split('=');
-          if (n && tokenKeyCandidates.includes(n.trim())){
-            document.cookie = n.trim()+'=; Max-Age=0; path=/';
-          }
-        });
-        location.href='/index.html';
-      });
-
-      loadUsers();
-      loadBackups();
-      document.querySelector('#createBackupBtn')?.addEventListener('click', createBackup);
-    });
-  </script>
+  <!-- 共通ユーティリティ（トースト/認証ヘルパ等はここで） -->
+  <script src="./script.js" defer></script>
+  <!-- 管理画面ロジック（あなたが貼ってくれた /api/admin/* 版）-->
+  <script src="./js/admin.js" defer></script>
 </body>
 </html>

@@ -1,167 +1,145 @@
-/* checkout.js — 決済フォーム（合計表示 / 入力チェック / 決済呼び出し / 完了ページへ遷移） */
+// public/js/checkout.js
+// カート合計の表示 + 簡易バリデーション + 決済API連携
+
 (() => {
   'use strict';
+  if (window.__CHECKOUT_WIRED__) return;
+  window.__CHECKOUT_WIRED__ = true;
 
-  // ローカルヘルパ（グローバルと衝突しない）
+  // ---- helpers ----
   const $  = (s, r=document) => r.querySelector(s);
   const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
   const fmtJPY = n => `¥${Math.round(Number(n||0)).toLocaleString('ja-JP')}`;
 
-  const FallbackAuth = {
+  // Auth は script.js で公開済み（なければ簡易フォールバック）
+  const Auth = window.Auth || {
     getToken(){ return localStorage.getItem('token') || ''; },
-    getUser(){ try { return JSON.parse(localStorage.getItem('auth_user')||''); } catch { return null; } },
-    isLoggedIn(){ return !!localStorage.getItem('token'); },
-    openLogin(){
-      const m = $('#loginModal');
-      if (m){ m.classList.remove('hidden'); m.classList.add('open'); document.body.classList.add('modal-open'); }
-    }
+    getUser(){ try{ return JSON.parse(localStorage.getItem('auth_user')||'null'); }catch{return null;} },
+    isLoggedIn(){ return !!localStorage.getItem('token'); }
   };
-  const Auth = (window.Auth ?? FallbackAuth);
 
-  // カートAPI（既存があれば優先）
+  // script.js と同じロジックで cart:<username|guest> を読む
   function cartKey(){
-    const u = Auth.getUser?.();
+    const u = (Auth.getUser && Auth.getUser()) || null;
     return `cart:${u?.username || 'guest'}`;
   }
-  const getCart = (typeof window.getCart === 'function')
-    ? window.getCart
-    : () => { try { return JSON.parse(localStorage.getItem(cartKey())||'[]'); } catch { return []; } };
+  function getCart(){
+    try { return JSON.parse(localStorage.getItem(cartKey()) || '[]'); }
+    catch { return []; }
+  }
+  function setCart(list){
+    localStorage.setItem(cartKey(), JSON.stringify(list || []));
+    window.dispatchEvent(new StorageEvent('storage', { key: cartKey() })); // 他UI更新用
+  }
 
-  const setCart = (typeof window.setCart === 'function')
-    ? window.setCart
-    : (list) => {
-        localStorage.setItem(cartKey(), JSON.stringify(list));
-        try { window.updateCartBadge && window.updateCartBadge(); } catch {}
-      };
-
-  // 入力バリデーション
-  const digits = s => String(s||'').replace(/\D+/g,'');
-  function luhnOk(card){
-    const s = digits(card);
-    if (s.length < 12 || s.length > 19) return false;
-    let sum = 0, dbl = false;
-    for (let i = s.length - 1; i >= 0; i--){
-      let d = s.charCodeAt(i) - 48;
-      if (dbl){ d *= 2; if (d > 9) d -= 9; }
-      sum += d; dbl = !dbl;
+  async function apiAuthPost(url, body){
+    const t = (Auth.getToken?.() || '').trim();
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type':'application/json',
+        ...(t ? { Authorization: `Bearer ${t}` } : {})
+      },
+      body: JSON.stringify(body||{})
+    });
+    const d = await r.json().catch(()=> ({}));
+    if (!r.ok) {
+      const err = new Error(d.error || `HTTP ${r.status}`);
+      err.status = r.status;
+      throw err;
     }
-    return (sum % 10) === 0;
-  }
-  function parseExp(mmYY){
-    const m = String(mmYY||'').trim().replace(/\s+/g,'').toUpperCase();
-    const t = m.split('/');
-    if (t.length !== 2) return null;
-    let mm = parseInt(t[0],10);
-    let yy = parseInt(t[1],10);
-    if (!(mm >= 1 && mm <= 12)) return null;
-    yy = (yy < 100) ? 2000 + yy : yy;
-    return { mm, yy };
-  }
-  function expOk(v){
-    const p = parseExp(v); if (!p) return false;
-    const now = new Date(); const y = now.getFullYear(); const m = now.getMonth() + 1;
-    return (p.yy > y) || (p.yy === y && p.mm >= m);
-  }
-  const cvvOk = v => { const s = digits(v); return s.length === 3 || s.length === 4; };
-
-  // 合計
-  function calcTotal(){
-    const list = getCart();
-    const total = list.reduce((s,i)=> s + (Math.round(Number(i.price)||0) * (Number(i.qty)||0)), 0);
-    return { list, total };
-  }
-  function renderTotal(){
-    const { total } = calcTotal();
-    const el = $('#checkoutTotal');
-    if (el) el.textContent = fmtJPY(total);
+    return d;
   }
 
-  // 決済
-  async function doPay(ev){
-    ev?.preventDefault?.();
+  // ---- DOM refs ----
+  const form   = $('#checkoutForm') || $('form');
+  const nameEl = $('#name') || $$('input')[0];
+  const cardEl = $('#card') || $$('input')[1];
+  const expEl  = $('#exp')  || $$('input')[2];
+  const cvvEl  = $('#cvv')  || $$('input')[3];
+  const btn    = $('#payBtn') || $$('button[type="submit"]').find(b=>/支払う/.test(b.textContent)) || $$('button')[0];
+  const totalEl= $('#checkoutTotal') || $('#total') || $('.sum-ttl + div') || $$('.sum-row div')[1];
 
-    if (!Auth.isLoggedIn?.()){
-      try { window.toast && window.toast('ログインが必要です'); } catch {}
-      Auth.openLogin?.();
-      return;
+  // ---- 合計計算（ローカルの価格でOK。価格が無い場合は0として表示） ----
+  function calcTotals(){
+    const items = getCart();
+    let subtotal = 0;
+    for (const it of items) {
+      const price = Math.round(Number(it.price)||0);
+      const qty   = Math.max(1, Number(it.qty)||0);
+      subtotal += price * qty;
     }
+    const tax = Math.round(subtotal * 0.1);
+    const total = subtotal + tax;
 
-    const name = $('#cardName')?.value || '';
-    const num  = $('#cardNumber')?.value || '';
-    const exp  = $('#cardExp')?.value || '';
-    const cvv  = $('#cardCvv')?.value || '';
+    if (totalEl) totalEl.textContent = fmtJPY(total);
+    // カートが空 or 未ログインならボタン止める（サーバでは 401/400 を返すので二重保険）
+    btn && (btn.disabled = (!items.length || !(Auth.isLoggedIn?.())));
+    return { items, subtotal, tax, total };
+  }
 
-    const errs = [];
-    if (!name.trim())  errs.push('氏名');
-    if (!luhnOk(num))  errs.push('カード番号');
-    if (!expOk(exp))   errs.push('有効期限');
-    if (!cvvOk(cvv))   errs.push('CVV');
+  // ---- 入力バリデーション（ライト） ----
+  function validate(){
+    const name = String(nameEl?.value||'').trim();
+    const card = String(cardEl?.value||'').replace(/\s|-/g,'');
+    const exp  = String(expEl?.value||'').replace(/\s/g,'').replace('/', '');
+    const cvv  = String(cvvEl?.value||'').trim();
 
-    const { list, total } = calcTotal();
-    if (!list.length || total <= 0) errs.push('カート');
+    if (!name) { alert('氏名を入力してください。'); return null; }
+    if (!/^\d{13,19}$/.test(card)) { alert('カード番号を確認してください。'); return null; }
+    if (!/^\d{4}$/.test(exp)) { alert('有効期限（MM/YY）を入力してください。'); return null; }
+    const mm = parseInt(exp.slice(0,2), 10);
+    const yy = parseInt(exp.slice(2,4), 10);
+    if (!(mm>=1 && mm<=12)) { alert('有効期限（月）が不正です。'); return null; }
+    if (!/^\d{3,4}$/.test(cvv)) { alert('CVV を確認してください。'); return null; }
 
-    if (errs.length){
-      try { window.toast && window.toast(`入力を確認してください: ${errs.join(' / ')}`); } catch {}
-      return;
-    }
+    return { name, card, expMM: mm, expYY: yy, cvv };
+  }
 
-    const btn = $('#payBtn') || $('#checkoutForm button[type="submit"]');
-    const old = btn?.textContent;
-    if (btn){ btn.disabled = true; btn.textContent = '処理中…'; }
+  // ---- 送信 ----
+  async function onSubmit(e){
+    e && e.preventDefault();
+
+    const v = validate(); if (!v) return;
+
+    const { items, subtotal, tax, total } = calcTotals();
+    if (!items.length) { alert('カートが空です。'); return; }
 
     try{
-      const token = Auth.getToken?.() || '';
-      const payloadItems = list.map(i => ({
-        id: (i.id ?? i.productId),        // どちらでもOK
-        qty: (Number(i.qty) || 1)
-      }));
+      btn && (btn.disabled = true);
+      // サーバは productId または id / qty を解釈する
+      const payload = {
+        items: items.map(i => ({
+          id: Number(i.productId || i.id),
+          productId: Number(i.productId || i.id),
+          qty: Math.max(1, Number(i.qty)||0)
+        })),
+        name: v.name,
+        cardLast4: v.card.slice(-4)
+      };
 
-      const res = await fetch('/api/checkout', {
-        method: 'POST',
-        headers: {
-          'Content-Type':'application/json',
-          'Accept':'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({
-          items: payloadItems,             // 価格はサーバ参照
-          cardLast4: digits(num).slice(-4),
-          name: name.trim()
-        })
-      });
-
-      let body;
-      try { body = await res.json(); }
-      catch { body = { ok:false, error: await res.text().catch(()=>`HTTP_${res.status}`) }; }
-
-      if (!res.ok || !body?.ok){
-        console.error('CHECKOUT_FAILED', res.status, body);
-        throw new Error(body?.error || `CHECKOUT_FAILED_${res.status}`);
-      }
-
-      // ← 成功したときだけクリア・バッジ更新
+      const res = await apiAuthPost('/api/checkout', payload);
+      // 成功：カートを空にし、完了ページへ
       setCart([]);
-      try { window.toast && window.toast(`支払い完了（注文ID: ${body.orderId}）`); } catch {}
-      try { const badge = $('#cartCount'); if (badge) badge.textContent = '0'; } catch {}
-      setTimeout(()=>{ location.href = `/order-complete.html?ref=${encodeURIComponent(body.orderId)}`; }, 500);
-    } catch(e){
-      console.error(e);
-      try { window.toast && window.toast('決済に失敗しました'); } catch {}
-      // 失敗時は何もしない（カート保持・バッジも維持）
-    } finally {
-      if (btn){ btn.disabled = false; btn.textContent = old || '支払う'; }
-      renderTotal(); // 表示だけ再計算（カートは成功時以外は保持）
+      location.href = `./order-complete.html?ref=${encodeURIComponent(res.orderId || '')}`;
+    }catch(err){
+      if (err.status === 401) alert('ログインが必要です。管理画面の「ログイン」から再度ログインしてください。');
+      else if (err.status === 409) alert('在庫を超えています。カート内容を見直してください。');
+      else alert('決済に失敗しました。しばらくしてからお試しください。');
+    }finally{
+      btn && (btn.disabled = false);
     }
   }
 
-  function wireCheckout(){
-    renderTotal();
-    const form = $('#checkoutForm') || $('form');
-    if (form){ form.addEventListener('submit', doPay); } // click の重複登録はしない
-    window.addEventListener('storage', e => {
-      if (e?.key && e.key.startsWith('cart:')) renderTotal();
-    });
-  }
+  // ---- init ----
+  document.addEventListener('DOMContentLoaded', ()=>{
+    calcTotals();
+    form && form.addEventListener('submit', onSubmit);
 
-  document.addEventListener('DOMContentLoaded', wireCheckout);
+    // 他タブでのカート変更・ログイン状態変化にも追随
+    window.addEventListener('storage', ev=>{
+      if (!ev.key) return;
+      if (ev.key === cartKey() || ev.key === 'token' || ev.key === 'auth_user') calcTotals();
+    });
+  });
 })();

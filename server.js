@@ -1,4 +1,6 @@
 // server.js — 公開ベストセラーAPI / 在庫・決済 / 管理系 + プロフィールAPI（sqliteスキーマ差異に強い版）
+// バックアップは VACUUM INTO → copy → stream の多段フォールバック、
+// リストアは close→置換→再オープン。削除ユーザー名の履歴スナップショット & 再登録フラグ対応。
 
 /* ─────────────────────────
    0) 起動・例外ログを強化
@@ -43,7 +45,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 /* ─────────────────────────
    2) DB & Promise helpers
 ───────────────────────── */
-const db = new sqlite3.Database(path.join(__dirname, 'shopping.db'));
+let db = new sqlite3.Database(path.join(__dirname, 'shopping.db'));
+
 const dbAll = (sql, params=[]) => new Promise((res, rej)=> db.all(String(sql), params, (e, r)=> e?rej(e):res(r||[])));
 const dbGet = (sql, params=[]) => new Promise((res, rej)=> db.get(String(sql), params, (e, r)=> e?rej(e):res(r||null)));
 const dbRun = (sql, params=[]) => new Promise((res, rej)=> db.run(String(sql), params, function(e){ e?rej(e):res(this); }));
@@ -80,6 +83,7 @@ db.serialize(() => {
     card_last4 TEXT,
     last4 TEXT,
     payer_name TEXT,
+    buyer_username TEXT, -- 履歴表示用のスナップショット
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
   db.run(`CREATE TABLE IF NOT EXISTS order_items (
@@ -93,28 +97,12 @@ db.serialize(() => {
     quantity INTEGER,
     line_total INTEGER
   )`);
-
-  // ユーザープロファイル
-  db.run(`CREATE TABLE IF NOT EXISTS user_profiles (
-    user_id INTEGER PRIMARY KEY,
-    display_name TEXT,
-    full_name   TEXT,
-    phone       TEXT,
-    birthday    TEXT,
-    website     TEXT,
-    country     TEXT,
-    state       TEXT,
-    city        TEXT,
-    address1    TEXT,
-    address2    TEXT,
-    zip         TEXT,
-    timezone    TEXT,
-    bio         TEXT,
-    avatar_url  TEXT,
-    twitter     TEXT,
-    language    TEXT,
-    newsletter  INTEGER DEFAULT 0,
-    updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+  // 退会ユーザー記録（再登録検知・履歴補助）
+  db.run(`CREATE TABLE IF NOT EXISTS deleted_users (
+    user_id    INTEGER,
+    username   TEXT,
+    email      TEXT,
+    deleted_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 
   // デモ商品
@@ -129,7 +117,23 @@ db.serialize(() => {
 });
 
 /* ─────────────────────────
-   4) admin/root を確保
+   3.5) スキーマ自己修復（古いバックアップ対策）
+───────────────────────── */
+async function ensureOrdersSchema(){
+  try{
+    const cols = await dbAll(`PRAGMA table_info('orders')`);
+    const names = new Set(cols.map(c=>c.name));
+    if (!names.has('buyer_username')) {
+      console.log('[SCHEMA] add orders.buyer_username');
+      await dbRun(`ALTER TABLE orders ADD COLUMN buyer_username TEXT`);
+    }
+  }catch(e){
+    console.warn('[SCHEMA] ensureOrdersSchema warn:', e?.message||e);
+  }
+}
+
+/* ─────────────────────────
+   4) admin/root を確保 & 起動時バックフィル
 ───────────────────────── */
 function ensureAdminBootstrap() {
   db.run(`INSERT OR IGNORE INTO users (username,email,password,role)
@@ -146,6 +150,29 @@ function ensureAdminBootstrap() {
   }
 }
 ensureAdminBootstrap();
+
+// 起動時バックフィル：buyer_username が空の注文へスナップショットを埋める（列がある時だけ）
+async function ensureBuyerUsernameSnapshot(){
+  try{
+    const cols = await dbAll(`PRAGMA table_info('orders')`);
+    const names = new Set(cols.map(c=>c.name));
+    if (!names.has('buyer_username')) return; // 列がない場合は何もしない（ensureOrdersSchema 後にもう一度呼ばれる）
+
+    await dbRun(`
+      UPDATE orders AS o
+         SET buyer_username = COALESCE(
+           o.buyer_username,
+           (SELECT u.username FROM users u WHERE u.id = o.user_id),
+           (SELECT u.email    FROM users u WHERE u.id = o.user_id),
+           '退会ユーザー'
+         )
+       WHERE o.buyer_username IS NULL OR o.buyer_username='';
+    `);
+  }catch(e){ console.warn('[BOOT] snapshot backfill warn:', e?.message||e); }
+}
+
+// まずスキーマ整備 → バックフィル
+ensureOrdersSchema().then(ensureBuyerUsernameSnapshot);
 
 /* ─────────────────────────
    5) 共通 utils / middleware
@@ -182,13 +209,21 @@ app.post('/api/login', async (req,res)=>{
     res.json({ token, user: { id:u.id, username:u.username, role:u.role } });
   }catch{ res.status(500).json({error:'DB error'}); }
 });
+
 app.post('/api/register', async (req,res)=>{
   const { username='', email='', password='' } = req.body||{};
   if(!username || !password) return res.status(400).json({error:'username/password required'});
   try{
-    const r = await dbRun(`INSERT INTO users (username,email,password,role) VALUES (?,?,?,'user')`,
-      [username.trim(), String(email||'').trim(), password]);
-    res.json({ ok:true, id:r.lastID });
+    // 過去の退会ユーザーとして存在していたか
+    const prev = await dbGet(
+      `SELECT 1 FROM deleted_users WHERE LOWER(username)=LOWER(?) LIMIT 1`,
+      [String(username).trim()]
+    );
+    const r = await dbRun(
+      `INSERT INTO users (username,email,password,role) VALUES (?,?,?,'user')`,
+      [username.trim(), String(email||'').trim(), password]
+    );
+    res.json({ ok:true, id:r.lastID, reRegistered: !!prev });
   }catch(e){
     if(String(e.message||'').includes('UNIQUE')) return res.status(409).json({error:'username exists'});
     res.status(500).json({error:'DB error'});
@@ -277,26 +312,61 @@ app.get('/api/product/:id', async (req,res)=>{
 });
 
 /* ─────────────────────────
-   9) 管理（ユーザー）
+   9) 管理（ユーザー）※削除はスナップショット固定＋退会記録
 ───────────────────────── */
 app.get('/api/admin/users', requireAdmin, async (_req,res)=>{
-  try{ const rows = await dbAll(`SELECT id,username,email,role,created_at,password FROM users ORDER BY id`);
-       res.json(rows); }
-  catch{ res.status(500).json({error:'DB error'}); }
+  try{
+    const rows = await dbAll(`SELECT id,username,email,role,created_at,password FROM users ORDER BY id`);
+    res.json(rows);
+  }catch{ res.status(500).json({error:'DB error'}); }
 });
+
+// ★メール更新用（存在しなかったので追加）
+app.put('/api/admin/users/:id', requireAdmin, async (req,res)=>{
+  const id = Number(req.params.id);
+  const email = (req.body && typeof req.body.email==='string') ? String(req.body.email).trim() : '';
+  if (!Number.isInteger(id)) return res.status(400).json({error:'bad_id'});
+  try{
+    const r = await dbRun(`UPDATE users SET email=? WHERE id=?`, [email, id]);
+    res.json({ ok:true, updated:r.changes });
+  }catch{ res.status(500).json({error:'DB error'}); }
+});
+
 app.put('/api/admin/users/:id/password', requireAdmin, async (req,res)=>{
   const { id } = req.params; const { password } = req.body||{};
   if(!password) return res.status(400).json({error:'password required'});
-  try{ const r = await dbRun(`UPDATE users SET password=? WHERE id=?`, [password, id]);
-       res.json({ ok:true, updated:r.changes }); }
-  catch{ res.status(500).json({error:'DB error'}); }
-});
-app.delete('/api/admin/users/:id', requireAdmin, async (req,res)=>{
-  try{ const r = await dbRun(`DELETE FROM users WHERE id=?`, [req.params.id]);
-       res.json({ deleted:r.changes }); }
-  catch{ res.status(500).json({error:'DB error'}); }
+  try{
+    const r = await dbRun(`UPDATE users SET password=? WHERE id=?`, [String(password), Number(id)]);
+    res.json({ ok:true, updated:r.changes });
+  }catch{ res.status(500).json({error:'DB error'}); }
 });
 
+app.delete('/api/admin/users/:id', requireAdmin, async (req,res)=>{
+  try{
+    const uid = Number(req.params.id);
+    const u = await dbGet(`SELECT id, username, email FROM users WHERE id=?`, [uid]);
+    if (!u) return res.status(404).json({ error:'not_found' });
+
+    // 1) 履歴スナップショット固定
+    const snapName = u.username || u.email || '退会ユーザー';
+    await dbRun(
+      `UPDATE orders SET buyer_username = COALESCE(buyer_username, ?) WHERE user_id = ?`,
+      [snapName, u.id]
+    );
+
+    // 2) 退会記録
+    await dbRun(`INSERT INTO deleted_users (user_id, username, email) VALUES (?,?,?)`,
+      [u.id, u.username || '', u.email || '']
+    );
+
+    // 3) 削除
+    const r = await dbRun(`DELETE FROM users WHERE id=?`, [u.id]);
+    res.json({ ok:true, deleted:r.changes, snapshot:snapName });
+  } catch(e){
+    console.error('admin delete user', e);
+    res.status(500).json({ error:'DB error' });
+  }
+});
 /* ─────────────────────────
    10) 在庫編集（inventory.js 用）
 ───────────────────────── */
@@ -321,7 +391,6 @@ app.post('/api/admin/products/:id/stock/add', requireAdmin, async (req,res)=>{
   let add = Math.round(Number(req.body?.add)); if(!Number.isFinite(add)) add = 0;
   add = Math.max(-100000, Math.min(100000, add));
   try{
-    // SQLite の MAX() は OK（stock+? が負でも 0 未満にならない）
     await dbRun(`UPDATE products SET stock=MAX(stock + ?, 0) WHERE id=?`, [add, id]);
     const row = await dbGet(`SELECT stock FROM products WHERE id=?`, [id]);
     res.json({ ok:true, stock: Math.max(0, Number(row.stock)||0) });
@@ -329,53 +398,160 @@ app.post('/api/admin/products/:id/stock/add', requireAdmin, async (req,res)=>{
 });
 
 /* ─────────────────────────
-   11) 簡易バックアップ
+   11) 簡易バックアップ（堅牢版）
 ───────────────────────── */
+const BACKUP_DIR = path.join(__dirname, 'backups');
+function two(n){ return String(n).padStart(2,'0'); }
+function tsFilename() {
+  const d = new Date();
+  const s = `${d.getFullYear()}-${two(d.getMonth()+1)}-${two(d.getDate())}_${two(d.getHours())}-${two(d.getMinutes())}-${two(d.getSeconds())}`;
+  return `backup_${s}.db`;
+}
+function safeName(raw){
+  const b = String(raw||'').trim();
+  const s = b.replace(/[^A-Za-z0-9_.-]/g,'');
+  return s ? (s.endsWith('.db') ? s : `${s}.db`) : tsFilename();
+}
+function fmtSize(bytes){
+  if (bytes >= 1024*1024) return `${Math.round(bytes/1024/1024)} MB`;
+  if (bytes >= 1024)      return `${Math.round(bytes/1024)} KB`;
+  return `${bytes} B`;
+}
+function fmtTime(ms){
+  const d = new Date(ms);
+  const s = `${d.getFullYear()}-${two(d.getMonth()+1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`;
+  return s;
+}
+
 app.get('/api/admin/backups', requireAdmin, async (_req,res)=>{
   try{
-    const dir = path.join(__dirname, 'backups');
-    await fsp.mkdir(dir, { recursive: true });
-    const entries = await fsp.readdir(dir, { withFileTypes: true });
+    await fsp.mkdir(BACKUP_DIR, { recursive: true });
+    const entries = await fsp.readdir(BACKUP_DIR, { withFileTypes: true });
     const rows = [];
     for (const ent of entries) {
       if (!ent.isFile() || !/\.db$/i.test(ent.name)) continue;
-      const st = await fsp.stat(path.join(dir, ent.name));
-      rows.push({ filename: ent.name, size: st.size, mtime: st.mtimeMs });
+      const st = await fsp.stat(path.join(BACKUP_DIR, ent.name));
+      rows.push({
+        filename: ent.name,        // 旧フロント互換
+        name: ent.name,            // 新フロント互換
+        size: st.size,
+        mtime: st.mtimeMs,
+        sizeText: fmtSize(st.size),
+        mtimeText: fmtTime(st.mtimeMs),
+      });
     }
     rows.sort((a,b)=> b.mtime - a.mtime);
     res.json(rows);
-  }catch(e){ console.error('[BACKUPS:list]', e); res.status(500).json([]); }
+  }catch(e){
+    console.error('[BACKUPS:list]', e);
+    res.status(500).json([]);
+  }
 });
+
+// 作成（段階的フォールバック）
 app.post('/api/admin/backup', requireAdmin, async (req,res)=>{
+  const name = safeName(req.body?.name);
+  const src = path.join(__dirname,'shopping.db');
+  const dst = path.join(BACKUP_DIR, name);
+
   try{
-    const dir = path.join(__dirname, 'backups');
-    await fsp.mkdir(dir, { recursive: true });
-    const base = (req.body && String(req.body.name||'').trim()) || '';
-    const safe = base.replace(/[^A-Za-z0-9_.-]/g, '');
-    const name = safe ? (safe.endsWith('.db') ? safe : `${safe}.db`) : `backup_${Date.now()}.db`;
-    await fsp.copyFile(path.join(__dirname,'shopping.db'), path.join(dir, name));
-    res.json({ ok:true, filename:name });
-  }catch(e){ console.error('[BACKUPS:create]', e); res.status(500).json({ ok:false }); }
+    await fsp.mkdir(BACKUP_DIR, { recursive: true });
+
+    // 同名があれば末尾連番
+    let finalDst = dst, idx = 1;
+    while (true) {
+      try { await fsp.access(finalDst); finalDst = path.join(BACKUP_DIR, name.replace(/\.db$/i, `_${idx++}.db`)); }
+      catch { break; }
+    }
+
+    // 1) VACUUM INTO
+    try{
+      await new Promise((resolve, reject)=>{
+        const tmp = new sqlite3.Database(src);
+        tmp.serialize(()=>{
+          tmp.run(`PRAGMA busy_timeout=3000`);
+          tmp.run(`PRAGMA wal_checkpoint(TRUNCATE)`, ()=> {
+            tmp.run(`VACUUM INTO ?`, [finalDst], (err)=>{
+              tmp.close(()=>{});
+              if (err) return reject(err);
+              resolve();
+            });
+          });
+        });
+      });
+      return res.json({ ok:true, filename: path.basename(finalDst), method: 'vacuum' });
+    }catch(e1){
+      console.warn('[BACKUP] VACUUM INTO failed:', e1?.message||e1);
+    }
+
+    // 2) copyFile
+    try{
+      await fsp.copyFile(src, finalDst);
+      return res.json({ ok:true, filename: path.basename(finalDst), method: 'copy' });
+    }catch(e2){
+      console.warn('[BACKUP] copyFile failed:', e2?.message||e2);
+    }
+
+    // 3) stream
+    try{
+      await new Promise((resolve, reject)=>{
+        const rs = fs.createReadStream(src);
+        const ws = fs.createWriteStream(finalDst);
+        let done = false;
+        const bail = (err)=>{ if(!done){ done=true; reject(err);} };
+        rs.on('error', bail);
+        ws.on('error', bail);
+        ws.on('close', ()=>{ if(!done){ done=true; resolve(); }});
+        rs.pipe(ws);
+      });
+      return res.json({ ok:true, filename: path.basename(finalDst), method: 'stream' });
+    }catch(e3){
+      console.error('[BACKUP] stream copy failed:', e3?.message||e3);
+      return res.status(500).json({ ok:false, error:`backup_failed` });
+    }
+
+  }catch(e){
+    console.error('[BACKUPS:create] fatal', e);
+    res.status(500).json({ ok:false, error: e?.message||'backup_failed' });
+  }
 });
+
+// 復元（DBを一旦閉じてから置換 → 再オープン）
 app.post('/api/admin/restore', requireAdmin, async (req,res)=>{
   try{
-    const raw = (req.body && req.body.filename) || (req.body && req.body.name) || '';
+    const raw = (req.body?.filename) || (req.body?.name) || '';
     const name = String(raw).replace(/[^A-Za-z0-9_.-]/g, '');
-    if (!name) return res.status(400).json({ ok:false });
-    await fsp.copyFile(path.join(__dirname,'backups',name), path.join(__dirname,'shopping.db'));
-    res.json({ ok:true });
-  }catch(e){ console.error('[BACKUPS:restore]', e); res.status(500).json({ ok:false }); }
+    if (!name) return res.status(400).json({ ok:false, error:'bad_name' });
+
+    const src = path.join(BACKUP_DIR, name);
+    const dst = path.join(__dirname,'shopping.db');
+
+    await new Promise((resolve, reject) => db.close((err)=> err ? reject(err) : resolve()));
+    await fsp.copyFile(src, dst);
+    db = new sqlite3.Database(dst);
+    ensureAdminBootstrap();
+    await ensureOrdersSchema();
+    await ensureBuyerUsernameSnapshot();
+
+    res.json({ ok:true, reloaded:true });
+  }catch(e){
+    console.error('[BACKUPS:restore]', e);
+    res.status(500).json({ ok:false, error:e?.message||'restore_failed' });
+  }
 });
+
 app.delete('/api/admin/backup/:filename', requireAdmin, async (req,res)=>{
   try{
     const name = String(req.params.filename||'').replace(/[^A-Za-z0-9_.-]/g, '');
-    await fsp.unlink(path.join(__dirname,'backups',name));
+    await fsp.unlink(path.join(BACKUP_DIR, name));
     res.json({ ok:true });
-  }catch(e){ res.status(e && e.code==='ENOENT' ? 404 : 500).json({ ok:false }); }
+  }catch(e){
+    res.status(e && e.code==='ENOENT' ? 404 : 500).json({ ok:false, error:e?.message||'delete_failed' });
+  }
 });
 
 /* ─────────────────────────
-   12) 決済（在庫連動・スキーマ自動適応）
+   12) 決済（在庫連動・スキーマ自動適応）※buyer_username を同時保存
 ───────────────────────── */
 app.post('/api/checkout', requireAuth, async (req, res) => {
   try {
@@ -418,16 +594,20 @@ app.post('/api/checkout', requireAuth, async (req, res) => {
     const orderCode = Date.now().toString(36) + Math.random().toString(36).slice(2,6);
     const last4 = String(cardLast4||'').slice(-4);
 
+    const buyerRow = await dbGet(`SELECT username, email FROM users WHERE id=?`, [req.user.userId]);
+    const buyerName = (buyerRow?.username || buyerRow?.email || '退会ユーザー');
+
     const cols = [], vals = [];
-    if (has('user_id')) cols.push('user_id'), vals.push(req.user.userId);
-    if (has('order_id')) cols.push('order_id'), vals.push(orderCode);
-    else if (has('order_code')) cols.push('order_code'), vals.push(orderCode);
-    if (has('payer_name')) cols.push('payer_name'), vals.push(name || '');
-    if (has('card_last4')) cols.push('card_last4'), vals.push(last4);
-    else if (has('last4')) cols.push('last4'), vals.push(last4);
-    if (has('subtotal')) cols.push('subtotal'), vals.push(subtotal);
-    if (has('tax'))      cols.push('tax'),      vals.push(tax);
-    if (has('total'))    cols.push('total'),    vals.push(total);
+    if (has('user_id'))        cols.push('user_id'),        vals.push(req.user.userId);
+    if (has('order_id'))       cols.push('order_id'),       vals.push(orderCode);
+    else if (has('order_code'))cols.push('order_code'),     vals.push(orderCode);
+    if (has('payer_name'))     cols.push('payer_name'),     vals.push(name || '');
+    if (has('card_last4'))     cols.push('card_last4'),     vals.push(last4);
+    else if (has('last4'))     cols.push('last4'),          vals.push(last4);
+    if (has('subtotal'))       cols.push('subtotal'),       vals.push(subtotal);
+    if (has('tax'))            cols.push('tax'),            vals.push(tax);
+    if (has('total'))          cols.push('total'),          vals.push(total);
+    if (has('buyer_username')) cols.push('buyer_username'), vals.push(buyerName);
     if (!cols.length) return res.status(500).json({ ok:false, error:'orders_cols_missing' });
 
     const sqlOrder = `INSERT INTO orders (${cols.join(',')}) VALUES (${cols.map(()=>'?').join(',')})`;
@@ -559,14 +739,8 @@ app.get('/api/my-orders', requireAuth, async (req, res) => {
 app.get('/api/orders/:orderId', requireAuth, async (req, res) => {
   try{
     const param = String(req.params.orderId || '');
-
     const oCols = await dbAll(`PRAGMA table_info('orders')`);
     const onames = new Set(oCols.map(c => c.name));
-
-    let whereCol = null, whereVal = param;
-    if (onames.has('order_id'))       whereCol = 'order_id';
-    else if (onames.has('order_code'))whereCol = 'order_code';
-    else { whereCol = 'id'; whereVal = Number(param); }
 
     const sel = ['id','created_at'];
     if (onames.has('order_id'))   sel.push('order_id');
@@ -577,10 +751,17 @@ app.get('/api/orders/:orderId', requireAuth, async (req, res) => {
     if (onames.has('card_last4')) sel.push('card_last4');
     if (onames.has('last4'))      sel.push('last4');
 
-    const head = await dbGet(
-      `SELECT ${sel.join(', ')} FROM orders WHERE user_id=? AND ${whereCol}=?`,
-      [req.user.userId, whereVal]
-    );
+    let head = null;
+    if (onames.has('order_id') || onames.has('order_code')) {
+      const where = [];
+      const args = [req.user.userId];
+      if (onames.has('order_id'))   { where.push('order_id=?');   args.push(param); }
+      if (onames.has('order_code')) { where.push('order_code=?'); args.push(param); }
+      head = await dbGet(`SELECT ${sel.join(', ')} FROM orders WHERE user_id=? AND (${where.join(' OR ')})`, args);
+    }
+    if (!head &&/^\d+$/.test(param)) {
+      head = await dbGet(`SELECT ${sel.join(', ')} FROM orders WHERE user_id=? AND id=?`, [req.user.userId, Number(param)]);
+    }
     if (!head) return res.status(404).json({ error:'not_found' });
 
     const iCols = await dbAll(`PRAGMA table_info('order_items')`);
@@ -648,6 +829,7 @@ app.get('/api/admin/sales-events', requireAdmin, async (req, res) => {
     const hasOrderId   = oNames.has('order_id');
     const hasOrderCode = oNames.has('order_code');
     const hasCreatedAt = oNames.has('created_at');
+    const hasBuyer     = oNames.has('buyer_username');
     const priceCol     = iNames.has('unit_price') ? 'unit_price' : 'price';
 
     const orderIdCol = iCols.find(c => c.name === 'order_id');
@@ -672,6 +854,10 @@ app.get('/api/admin/sales-events', requireAdmin, async (req, res) => {
     const params = [];
     if (productId) { where.push('oi.product_id = ?'); params.push(productId); }
 
+    const userExpr = hasBuyer
+      ? "COALESCE(o.buyer_username, u.username, u.email, '退会ユーザー')"
+      : "COALESCE(u.username, u.email, '退会ユーザー')";
+
     const sql = `
       SELECT
         ${hasCreatedAt ? 'o.created_at' : "datetime('now')"} AS created_at,
@@ -680,8 +866,7 @@ app.get('/api/admin/sales-events', requireAdmin, async (req, res) => {
         oi.name         AS product_name,
         oi.${priceCol}  AS unit_price,
         oi.qty          AS qty,
-        u.id            AS buyer_id,
-        u.username      AS buyer_username
+        ${userExpr}     AS buyer_username
       FROM order_items oi
       JOIN orders o ON (${joinCond})
       LEFT JOIN users u ON u.id = o.user_id
@@ -700,8 +885,7 @@ app.get('/api/admin/sales-events', requireAdmin, async (req, res) => {
       unitPrice: Math.round(Number(r.unit_price)||0),
       qty: Math.max(0, Number(r.qty)||0),
       subTotal: Math.round((Number(r.unit_price)||0) * (Number(r.qty)||0)),
-      buyerId: r.buyer_id ?? null,
-      buyer: r.buyer_username || ''
+      buyer: r.buyer_username || '退会ユーザー'
     })));
   } catch (e) {
     console.error('[admin sales-events]', e);
@@ -745,14 +929,13 @@ app.get('/api/bestsellers', async (req, res) => {
   }catch(e){ console.error('GET /api/bestsellers error:', e); res.status(500).json({ error:'failed_to_aggregate' }); }
 });
 
-// === 管理: 売上履歴タイムライン（最新→古い）: 全件取得 + 複数条件検索 + 異なるスキーマ吸収 ===
+/* ─ 管理: 売上履歴タイムライン（最新→古い）: 全件取得 + 複数条件検索（OR） + 異なるスキーマ吸収 ─ */
 app.get('/api/admin/sales-timeline', requireAdmin, async (req, res) => {
   try {
-    // ---- パラメータ
     const allFlag = String(req.query.all || '').trim() === '1';
-    const limit   = allFlag ? 5000 : Math.max(1, Math.min(200, parseInt(req.query.limit || '50', 10)));
-    const offset  = allFlag ? 0    : Math.max(0, parseInt(req.query.offset || '0', 10));
-    // カンマ/空白 区切りで複数ワード OK（部分一致）
+    const limit  = allFlag ? 5000 : Math.max(1, Math.min(200, parseInt(req.query.limit || '50', 10)));
+    const offset = allFlag ? 0 : Math.max(0, parseInt(req.query.offset || '0', 10));
+
     const splitTokens = (v) =>
       String(v || '')
         .split(/[,\s]+/)
@@ -762,64 +945,68 @@ app.get('/api/admin/sales-timeline', requireAdmin, async (req, res) => {
     const userTokens    = splitTokens(req.query.user);
     const productTokens = splitTokens(req.query.product);
 
-    // 金額フィルタは「行の小計（単価×数量）」にかけます
     const minAmount = req.query.min ? Math.max(0, parseInt(req.query.min, 10) || 0) : null;
     const maxAmount = req.query.max ? Math.max(0, parseInt(req.query.max, 10) || 0) : null;
 
-    // ---- スキーマ情報
     const oCols = await dbAll(`PRAGMA table_info('orders')`);
     const iCols = await dbAll(`PRAGMA table_info('order_items')`).catch(() => []);
-    const oiCols = await dbAll(`PRAGMA table_info('orders_items')`).catch(() => []); // 古い/別名テーブルも吸収
+    const oiCols = await dbAll(`PRAGMA table_info('orders_items')`).catch(() => []);
 
     const oset = new Set(oCols.map(c => c.name));
     const hasOrderId   = oset.has('order_id');
     const hasOrderCode = oset.has('order_code');
     const hasCreatedAt = oset.has('created_at');
     const hasUserId    = oset.has('user_id');
+    const hasBuyer     = oset.has('buyer_username');
 
-    // order_items 系の列名揺れ
     const mkItemInfo = (cols) => {
       const map = new Map(cols.map(c => [c.name, c]));
       const has = (n) => map.has(n);
       const qtyCol   = has('qty') ? 'qty' : (has('quantity') ? 'quantity' : 'qty');
       const priceCol = has('unit_price') ? 'unit_price' : (has('price') ? 'price' : 'price');
       const hasLine  = has('line_total');
-      // order_id の型（文字なら orders の order_id / order_code と文字結合）
       const type = String(map.get('order_id')?.type || '').toUpperCase();
       const isTextId = type.includes('TEXT') || type.includes('CHAR') || type.includes('CLOB') || type === '';
       return { qtyCol, priceCol, hasLine, isTextId };
     };
 
-    const item1 = iCols.length ? mkItemInfo(iCols)  : null; // order_items
-    const item2 = oiCols.length ? mkItemInfo(oiCols) : null; // orders_items
+    const item1 = iCols.length ? mkItemInfo(iCols)  : null;
+    const item2 = oiCols.length ? mkItemInfo(oiCols) : null;
 
-    if (!item1 && !item2) return res.json([]); // アイテム表が無い DB
+    if (!item1 && !item2) return res.json([]);
 
-    // orders 側の表示用 ID と並び順
     const orderRefExpr = (hasOrderId || hasOrderCode)
       ? `(COALESCE(o.order_id, o.order_code, CAST(o.id AS TEXT)))`
       : `CAST(o.id AS TEXT)`;
     const orderBy = hasCreatedAt ? 'datetime(o.created_at) DESC, o.id DESC' : 'o.id DESC';
 
-    // 共通 WHERE をつくる（UNION 両側で使う）
     const whereParts = [];
     const whereParams = [];
 
-    // ユーザー：username / email 部分一致
+    // ユーザー：OR 検索（スナップショット/現ユーザー名/メール）※buyer_username がないDBにも対応
     if (userTokens.length) {
-      const perToken = userTokens.map(() => `(u.username LIKE ? OR u.email LIKE ?)`).join(' AND ');
-      whereParts.push(perToken);
-      userTokens.forEach(tok => { whereParams.push(`%${tok}%`, `%${tok}%`); });
+      if (hasBuyer) {
+        const orChunks = userTokens.map(() =>
+          `(COALESCE(o.buyer_username,'') LIKE ? OR COALESCE(u.username,'') LIKE ? OR COALESCE(u.email,'') LIKE ?)`
+        );
+        whereParts.push(`(${orChunks.join(' OR ')})`);
+        userTokens.forEach(tok => { whereParams.push(`%${tok}%`, `%${tok}%`, `%${tok}%`); });
+      } else {
+        const orChunks = userTokens.map(() =>
+          `(COALESCE(u.username,'') LIKE ? OR COALESCE(u.email,'') LIKE ?)`
+        );
+        whereParts.push(`(${orChunks.join(' OR ')})`);
+        userTokens.forEach(tok => { whereParams.push(`%${tok}%`, `%${tok}%`); });
+      }
     }
 
-    // 製品名：部分一致（oi.name または products.name）
+    // 製品名：OR 検索
     if (productTokens.length) {
-      const perToken = productTokens.map(() => `(COALESCE(oi.name, p.name, '') LIKE ?)`).join(' AND ');
-      whereParts.push(perToken);
+      const orChunks = productTokens.map(() => `COALESCE(oi.name, p.name, '') LIKE ?`);
+      whereParts.push(`(${orChunks.join(' OR ')})`);
       productTokens.forEach(tok => whereParams.push(`%${tok}%`));
     }
 
-    // 金額（行小計）
     const addAmountWhere = (hasLine, priceCol, qtyCol) => {
       const parts = [];
       if (minAmount !== null) {
@@ -833,7 +1020,6 @@ app.get('/api/admin/sales-timeline', requireAdmin, async (req, res) => {
       return parts.join(' AND ');
     };
 
-    // JOIN 条件
     const makeJoin = (isTextId) => {
       if (isTextId) {
         if (hasOrderId && hasOrderCode) return '(oi.order_id = o.order_id OR oi.order_id = o.order_code)';
@@ -844,11 +1030,15 @@ app.get('/api/admin/sales-timeline', requireAdmin, async (req, res) => {
       return 'oi.order_id = o.id';
     };
 
+    const userExpr = hasBuyer
+      ? "COALESCE(o.buyer_username, u.username, u.email, '退会ユーザー')"
+      : "COALESCE(u.username, u.email, '退会ユーザー')";
+
     const selectCommon = `
       SELECT
         ${hasCreatedAt ? 'o.created_at' : "datetime('now')"} AS created_at,
         ${orderRefExpr} AS orderRef,
-        COALESCE(u.username, u.email, '') AS user,
+        ${userExpr} AS user,
         COALESCE(oi.name, p.name, '')     AS product,
         CAST(oi.__QTY__ AS INTEGER)       AS qty,
         CAST(oi.__PRICE__ AS INTEGER)     AS unit,
@@ -881,30 +1071,27 @@ app.get('/api/admin/sales-timeline', requireAdmin, async (req, res) => {
       if (parts.length) sql += `\nWHERE ${parts.join(' AND ')}`;
 
       unions.push(sql);
-      params.push(...whereParams);   // それぞれの UNION に同じバインドを繰り返す
+      params.push(...whereParams);
     };
 
-    buildOne('order_items',  item1);
-    buildOne('orders_items', item2);
+    buildOne('order_items',  iCols.length ? mkItemInfo(iCols) : null);
+    buildOne('orders_items', oiCols.length ? mkItemInfo(oiCols) : null);
 
     if (!unions.length) return res.json([]);
 
-    // ★ all=1 のときは LIMIT/OFFSET を完全に外す（本当に全件）
-    let finalSql, finalParams;
-    if (allFlag) {
-      finalSql    = `${unions.join('\nUNION ALL\n')}\nORDER BY ${orderBy}`;
-      finalParams = params;
-    } else {
-      finalSql    = `${unions.join('\nUNION ALL\n')}\nORDER BY ${orderBy}\nLIMIT ? OFFSET ?`;
-      finalParams = [...params, limit, offset];
-    }
+    const final = `
+      ${unions.join('\nUNION ALL\n')}
+      ORDER BY ${orderBy}
+      LIMIT ? OFFSET ?
+    `;
+    params.push(limit, offset);
 
-    const rows = await dbAll(finalSql, finalParams);
+    const rows = await dbAll(final, params);
 
     res.json(rows.map(r => ({
       created_at: r.created_at,
       orderRef  : String(r.orderRef || ''),
-      user      : r.user || '',
+      user      : r.user || '退会ユーザー',
       product   : r.product || '',
       qty       : Math.max(0, Number(r.qty)  || 0),
       unit      : Math.max(0, Number(r.unit) || 0),
@@ -916,11 +1103,10 @@ app.get('/api/admin/sales-timeline', requireAdmin, async (req, res) => {
   }
 });
 
-// ---- 静的（トップ）と 404
+/* ── 静的（トップ）と 404 / エラー ── */
 app.get('/', (_req,res)=> res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.use((req,res) => res.status(404).json({ error: 'not_found' }));
 
-// ---- 共通エラーハンドラ（落ちないようにする）
 app.use((err, _req, res, _next) => {
   console.error('[UNHANDLED]', err && err.stack ? err.stack : err);
   try {
@@ -928,9 +1114,9 @@ app.use((err, _req, res, _next) => {
   } catch {}
 });
 
-// ---- 起動（listen）とポート競合の検出
-const server = app.listen(PORT, () => {
-  console.log(`Vulnerable shopping site running on port ${PORT}`);
+/* ── 起動 ── */
+const server = app.listen(PORT, HOST, () => {
+  console.log(`Vulnerable shopping site running on http://${HOST}:${PORT}`);
   console.log(`[ENV] dotenv loaded: ${ENV_LOADED} | ENABLE_DEV_ROOT=${DEV_ROOT} | ADMIN_DEFAULT_EMAIL=${DEV_ROOT_EMAIL} | JWT_SECRET=${process.env.JWT_SECRET ? '(set)' : '(not set)'}`);
 });
 server.on('error', (e) => {
@@ -940,12 +1126,4 @@ server.on('error', (e) => {
     console.error('[FATAL] server listen error:', e);
   }
   process.exit(1);
-});
-
-// ---- 予期せぬ例外でプロセスが死なないよう保険
-process.on('uncaughtException', (e) => {
-  console.error('[uncaughtException]', e);
-});
-process.on('unhandledRejection', (e) => {
-  console.error('[unhandledRejection]', e);
 });
