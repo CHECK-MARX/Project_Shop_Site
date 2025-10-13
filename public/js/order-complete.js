@@ -18,8 +18,7 @@
   }
 
   async function apiAuthGet(url) {
-    const t = (window.Auth?.getToken?.() || localStorage.getItem('token') || '').trim();
-    const r = await fetch(url, { headers: { ...(t ? { Authorization:`Bearer ${t}` } : {}) } });
+    const r = await fetch(url, { credentials:'include' });
     const b = await r.json().catch(()=> ({}));
     if (!r.ok) throw new Error(b.error || r.status);
     return b;

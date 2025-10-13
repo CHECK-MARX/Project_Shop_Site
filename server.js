@@ -23,6 +23,7 @@ const sqlite3 = require('sqlite3').verbose();
 const bcrypt  = require('bcrypt');
 const jwt     = require('jsonwebtoken');
 const cors    = require('cors');
+const cookieParser = require('cookie-parser');
 const path    = require('path');
 const fs      = require('fs');
 const fsp     = fs.promises;
@@ -34,10 +35,13 @@ const HOST = process.env.HOST || '0.0.0.0';
 const JWT_KEY = process.env.JWT_SECRET || 'weak-jwt-secret';
 const DEV_ROOT = String(process.env.ENABLE_DEV_ROOT || '').toLowerCase() === 'true';
 const DEV_ROOT_EMAIL = process.env.ADMIN_DEFAULT_EMAIL || 'root@local';
+const COOKIE_NAME = 'session_token';
+const IS_PROD = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
 // 静的ファイル（/public）
 app.use(express.static(path.join(__dirname, 'public')));
@@ -181,8 +185,17 @@ const esc = s => String(s ?? '')
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
   .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 const sign = p => jwt.sign(p, JWT_KEY, { expiresIn: '24h' });
+const cookieOpts = {
+  maxAge: 24 * 60 * 60 * 1000,
+  httpOnly: true,
+  sameSite: 'lax',
+  secure: IS_PROD,
+  path: '/'
+};
 function requireAuth(req,res,next){
-  const t = (req.headers.authorization||'').replace(/^Bearer\s+/i,'').trim();
+  const headerToken = (req.headers.authorization||'').replace(/^Bearer\s+/i,'').trim();
+  const cookieToken = (req.cookies && req.cookies[COOKIE_NAME]) ? String(req.cookies[COOKIE_NAME]) : '';
+  const t = headerToken || cookieToken;
   if(!t) return res.status(401).json({error:'No token'});
   try { req.user = jwt.verify(t, JWT_KEY); next(); }
   catch { return res.status(401).json({error:'Invalid token'}); }
@@ -206,8 +219,14 @@ app.post('/api/login', async (req,res)=>{
     else { ok = (u.password === pass); }
     if(!ok) return res.status(401).json({error:'Invalid credentials'});
     const token = sign({ userId:u.id, role:u.role });
-    res.json({ token, user: { id:u.id, username:u.username, role:u.role } });
+    res.cookie(COOKIE_NAME, token, cookieOpts);
+    res.json({ user: { id:u.id, username:u.username, role:u.role } });
   }catch{ res.status(500).json({error:'DB error'}); }
+});
+
+app.post('/api/logout', (req,res)=>{
+  res.clearCookie(COOKIE_NAME, { ...cookieOpts, maxAge: 0, expires: new Date(0) });
+  res.json({ ok:true });
 });
 
 app.post('/api/register', async (req,res)=>{

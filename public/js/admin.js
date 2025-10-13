@@ -4,11 +4,13 @@
 
   const $ = (s, r=document) => r.querySelector(s);
 
-  // ---- fetch helper with Bearer
-  const token = () => localStorage.getItem('token') || '';
-  const authHdr = () => (token() ? { Authorization: 'Bearer ' + token() } : {});
+  // ---- fetch helper (cookie-based auth)
   const jfetch = async (url, opt={}) => {
-    const res = await fetch(url, { ...opt, headers: { 'Content-Type':'application/json', ...authHdr(), ...(opt.headers||{}) }});
+    const res = await fetch(url, {
+      credentials: 'include',
+      ...opt,
+      headers: { 'Content-Type':'application/json', ...(opt.headers||{}) }
+    });
     let data=null; try{ data = await res.json(); }catch{}
     if (!res.ok) throw new Error(data?.error || String(res.status));
     return data ?? {};

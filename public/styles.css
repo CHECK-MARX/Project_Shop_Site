@@ -41,9 +41,11 @@ body{
 .btn-group{display:inline-flex;align-items:center;gap:8px}
 
 /* ---- Navbar ---- */
-.navbar{position:sticky;top:0;z-index:9999;background:rgba(20,22,60,.6);backdrop-filter:blur(10px);color:#fff;padding:14px 20px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;gap:16px;}
+.navbar{position:sticky;top:0;z-index:9999;background:rgba(20,22,60,.6);backdrop-filter:blur(10px);color:#fff;padding:14px 20px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:nowrap;}
 .nav-brand h1{font-size:22px;}
-.nav-links{display:flex;align-items:center;gap:20px;flex-wrap:wrap;}
+.nav-links{display:flex;align-items:center;gap:12px;flex-wrap:nowrap;overflow-x:auto;white-space:nowrap;flex:1;justify-content:flex-end;}
+.nav-links::-webkit-scrollbar{height:6px;}
+.nav-links::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.2);border-radius:3px;}
 .nav-links a{color:#fff;text-decoration:none;font-weight:700;transition:color .15s,transform .15s;}
 .nav-links a:hover{color:#ffd700;transform:translateY(-1px);}
 .auth-buttons{display:inline-flex;align-items:center;gap:10px;}

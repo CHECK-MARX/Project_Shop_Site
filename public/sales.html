@@ -16,18 +16,24 @@
   </style>
 </head>
 <body>
-<header class="navbar">
-  <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
-  <div class="nav-links">
-    <a href="./index.html">ホーム</a>
-    <a href="./products.html">商品</a>
-    <a href="./cart.html">カート</a>
-    <a href="./java-vuln.html" style="color:#ffd700;font-weight:bold;">Java脆弱性デモ</a>
-    <a href="./sales.html" aria-current="page" style="font-weight:700">売上履歴</a>
-    <div class="auth-buttons">
-      <button id="logoutBtn" class="btn btn-danger">ログアウト</button>
+<header>
+  <nav class="navbar">
+    <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
+    <div class="nav-links">
+      <a href="./index.html">ホーム</a>
+      <a href="./products.html">商品</a>
+      <a href="./cart.html">カート<span id="cartCount" class="cart-badge">0</span></a>
+      <a href="./java-vuln.html" style="color:#ffd700;font-weight:bold;">Java脆弱性デモ</a>
+      <a href="http://127.0.0.1:5000/python-products/dashboard" target="_blank" class="btn btn-secondary" rel="noopener">Pythonダッシュボード</a>
+      <div class="auth-buttons">
+        <button id="loginBtn" class="btn btn-primary">ログイン</button>
+        <button id="registerBtn" class="btn btn-secondary">新規登録</button>
+        <button id="logoutBtn" class="btn btn-danger" style="display:none;">ログアウト</button>
+        <span id="navUser" class="user-pill" hidden></span>
+        <a id="profileLink" href="./profile.html" style="display:none;margin-left:8px;">プロフィール</a>
+      </div>
     </div>
-  </div>
+  </nav>
 </header>
 
 <main class="page-wrap">
@@ -53,28 +59,31 @@
   </div>
 </main>
 
+<script src="./script.js" defer></script>
 <script>
-const $ = s => document.querySelector(s);
-const token = localStorage.getItem('token') || '';
+const $ = (selector) => document.querySelector(selector);
 
 function fmtJPY(n){ return '¥' + Math.round(Number(n||0)).toLocaleString('ja-JP'); }
-function setMsg(t, ok=false){ const el=$('#msg'); el.textContent=t||''; el.className = ok?'ok':'muted'; }
+function setMsg(message, ok=false){ const el = $('#msg'); if(!el) return; el.textContent = message || ''; el.className = ok ? 'ok' : 'muted'; }
 
 async function load(){
-  if(!token){ setMsg('未ログイン、または権限がありません（管理者のみ）'); $('#rows').innerHTML='<tr><td colspan="7">権限がありません</td></tr>'; return; }
-
   const pid = new URLSearchParams(location.search).get('product');
   if (pid) $('#filterHint').textContent = `product=${pid}`;
-  else $('#filterHint').textContent = '全体';
+  else $('#filterHint').textContent = 'all';
 
   try{
-    const url = `/api/admin/sales-events${pid ? ('?product='+encodeURIComponent(pid)) : ''}`;
-    const r = await fetch(url, { headers: { Authorization: 'Bearer '+token }});
-    const list = await r.json();
-    if(!r.ok) throw new Error(list && list.error || r.statusText);
+    const url = `/api/admin/sales-events${pid ? ('?product=' + encodeURIComponent(pid)) : ''}`;
+    const res = await fetch(url, { credentials:'include' });
+    if (res.status === 401){
+      setMsg('Login required or insufficient privileges.');
+      $('#rows').innerHTML = '<tr><td colspan="7">Unauthorized</td></tr>';
+      return;
+    }
+    const list = await res.json();
+    if(!res.ok) throw new Error((list && list.error) || res.statusText);
 
     if (!Array.isArray(list) || list.length===0){
-      $('#rows').innerHTML = `<tr><td colspan="7" class="muted">データがありません</td></tr>`;
+      $('#rows').innerHTML = '<tr><td colspan="7" class="muted">No data available</td></tr>';
       return;
     }
     $('#rows').innerHTML = list.map(x=>{
@@ -90,17 +99,14 @@ async function load(){
         <td>${x.buyer || ''}</td>
       </tr>`;
     }).join('');
-    setMsg(`合計 ${list.length} 件を表示`);
+    setMsg(`Total ${list.length} records`, true);
   }catch(e){
     console.error(e);
-    setMsg('取得に失敗しました: '+e.message);
-    $('#rows').innerHTML = `<tr><td colspan="7">エラー</td></tr>`;
+    setMsg('Failed to fetch data: ' + (e.message || e));
+    $('#rows').innerHTML = '<tr><td colspan="7">Error</td></tr>';
   }
 }
 
-$('#logoutBtn')?.addEventListener('click', ()=>{
-  localStorage.removeItem('token'); localStorage.removeItem('auth_user'); location.href='./index.html';
-});
 load();
 </script>
 </body>

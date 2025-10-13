@@ -29,16 +29,20 @@
 <body>
   <header>
     <nav class="navbar">
-      <div class="nav-brand"><h1>🛠 管理者パネル</h1></div>
+      <div class="nav-brand"><h1>🛒 Vulnerable Shop</h1></div>
       <div class="nav-links">
         <a href="./index.html">ホーム</a>
         <a href="./products.html">商品</a>
-        <a href="./cart.html">カート</a>
+        <a href="./cart.html">カート<span id="cartCount" class="cart-badge">0</span></a>
         <a href="./java-vuln.html" style="color:#ffd700;font-weight:bold;">Java脆弱性デモ</a>
-        <a href="./inventory.html" aria-current="page" style="font-weight:700;">在庫管理</a>
-        <button id="logoutBtn" class="btn btn-danger">ログアウト</button>
-        <span id="navUser" class="user-pill" hidden></span>
-        <a id="profileLink" href="./profile.html" style="display:none;margin-left:8px;">プロフィール</a>
+        <a href="http://127.0.0.1:5000/python-products/dashboard" target="_blank" class="btn btn-secondary" rel="noopener">Pythonダッシュボード</a>
+        <div class="auth-buttons">
+          <button id="loginBtn" class="btn btn-primary">ログイン</button>
+          <button id="registerBtn" class="btn btn-secondary">新規登録</button>
+          <button id="logoutBtn" class="btn btn-danger" style="display:none;">ログアウト</button>
+          <span id="navUser" class="user-pill" hidden></span>
+          <a id="profileLink" href="./profile.html" style="display:none;margin-left:8px;">プロフィール</a>
+        </div>
       </div>
     </nav>
   </header>

@@ -106,73 +106,116 @@
 </main>
 
 <script>
-  const $ = s => document.querySelector(s);
-  function authHeaders(){
-    const t = localStorage.getItem('token') || '';
-    return { 'Content-Type':'application/json', ...(t?{Authorization:'Bearer '+t}:{}) };
-  }
-  function setMsg(t, ok=false){ const el=$('#msg'); el.textContent=t; el.className = ok?'ok':'err'; }
-  function clearMsg(){ const el=$('#msg'); el.textContent=''; el.className='muted'; }
+  'use strict';
+  const $ = (sel) => document.querySelector(sel);
+  const jsonHeaders = () => ({ 'Content-Type': 'application/json' });
 
-  async function loadProfile(){
+  function setMsg(message, ok = false) {
+    const el = document.querySelector('#msg');
+    if (!el) return;
+    el.textContent = message;
+    el.className = ok ? 'ok' : 'err';
+  }
+
+  function clearMsg() {
+    const el = document.querySelector('#msg');
+    if (!el) return;
+    el.textContent = '';
+    el.className = 'muted';
+  }
+
+  function populateProfile(user, profile) {
+    const header = document.querySelector('#headerName');
+    if (header) header.textContent = profile.display_name || (user && user.username) || '-';
+    const avatar = document.querySelector('#avatarPreview');
+    if (avatar && profile.avatar_url) avatar.src = profile.avatar_url;
+    const form = document.querySelector('#profileForm');
+    if (!form) return;
+    const merged = { ...profile };
+    if (user && user.email) merged.email = user.email;
+    Object.entries(merged).forEach(([key, value]) => {
+      if (key in form.elements) form.elements[key].value = value ?? '';
+    });
+  }
+
+  async function loadProfile() {
     clearMsg();
-    const t = localStorage.getItem('token');
-    if(!t){ setMsg('未ログインです'); return; }
-    try{
-      const r = await fetch('/api/me', {headers: authHeaders()});
-      const d = await r.json();
-      if(!r.ok) throw new Error(d.error||r.statusText);
-
-      $('#headerName').textContent = (d.profile?.display_name || d.user?.username || '-');
-      $('#avatarPreview').src = d.profile?.avatar_url || 'https://i.pravatar.cc/72?img=12';
-
-      const f = $('#profileForm');
-      Object.entries(d.profile||{}).forEach(([k,v])=>{
-        if (k in f.elements) f.elements[k].value = v ?? '';
-      });
-      if (f.elements.email && d.user?.email) f.elements.email.value = d.user.email;
-    }catch(e){ setMsg('読み込み失敗: '+e.message); }
+    try {
+      const res = await fetch('/api/me', { credentials: 'include' });
+      if (res.status === 401) {
+        setMsg('Login required.');
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      const user = data.user || null;
+      const profile = data.profile || {};
+      try { localStorage.setItem('auth_user', JSON.stringify(user || {})); } catch (err) {}
+      populateProfile(user, profile);
+    } catch (err) {
+      setMsg('Failed to load profile: ' + (err.message || err));
+    }
   }
 
-  $('#profileForm').addEventListener('submit', async (e)=>{
-    e.preventDefault(); clearMsg();
-    const t = localStorage.getItem('token');
-    if(!t){ setMsg('未ログインです'); return; }
-    const f=e.currentTarget;
-    const payload = Object.fromEntries(new FormData(f).entries());
-    try{
-      const r = await fetch('/api/me', {method:'PUT', headers:authHeaders(), body:JSON.stringify(payload)});
-      const d = await r.json();
-      if(!r.ok) throw new Error(d.error||r.statusText);
-      setMsg('保存しました', true);
-      $('#headerName').textContent = payload.display_name || $('#headerName').textContent;
-      if(payload.avatar_url) $('#avatarPreview').src = payload.avatar_url;
-    }catch(e){ setMsg('保存失敗: '+e.message); }
-  });
-
-  $('#reloadBtn').addEventListener('click', loadProfile);
-
-  $('#passwordForm').addEventListener('submit', async (e)=>{
-    e.preventDefault(); clearMsg();
-    const cur = e.currentTarget.elements.current.value;
-    const next = e.currentTarget.elements.next.value;
-    if(!cur || !next){ setMsg('入力不足'); return; }
-    try{
-      const r = await fetch('/api/me/password', {
-        method:'PUT', headers:authHeaders(),
-        body:JSON.stringify({ current:cur, next })
+  document.querySelector('#profileForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    clearMsg();
+    const form = event.currentTarget;
+    const payload = Object.fromEntries(new FormData(form).entries());
+    try {
+      const res = await fetch('/api/me', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: jsonHeaders(),
+        body: JSON.stringify(payload)
       });
-      const d = await r.json();
-      if(!r.ok) throw new Error(d.error||d.message||r.statusText);
-      setMsg('パスワードを更新しました', true);
-      e.currentTarget.reset();
-    }catch(e){ setMsg('更新失敗: '+e.message); }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      setMsg('Profile saved.', true);
+      const cachedUser = (() => {
+        try { return JSON.parse(localStorage.getItem('auth_user') || 'null'); }
+        catch (err) { return null; }
+      })();
+      populateProfile(cachedUser, { ...payload, avatar_url: payload.avatar_url, display_name: payload.display_name });
+    } catch (err) {
+      setMsg('Failed to save profile: ' + (err.message || err));
+    }
   });
 
-  $('#logoutBtn').addEventListener('click', ()=>{
-    localStorage.removeItem('token');
-    localStorage.removeItem('auth_user');   // ← こっちが正
-    location.href = './index.html';
+  document.querySelector('#reloadBtn')?.addEventListener('click', loadProfile);
+
+  document.querySelector('#passwordForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    clearMsg();
+    const form = event.currentTarget;
+    const current = form.elements.current.value;
+    const next = form.elements.next.value;
+    if (!current || !next) {
+      setMsg('Missing password fields.');
+      return;
+    }
+    try {
+      const res = await fetch('/api/me/password', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: jsonHeaders(),
+        body: JSON.stringify({ current, next })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || data.message || res.statusText);
+      setMsg('Password updated.', true);
+      form.reset();
+    } catch (err) {
+      setMsg('Failed to update password: ' + (err.message || err));
+    }
+  });
+
+  document.querySelector('#logoutBtn')?.addEventListener('click', () => {
+    fetch('/api/logout', { method: 'POST', credentials: 'include' })
+      .finally(() => {
+        try { localStorage.removeItem('auth_user'); } catch (err) {}
+        location.href = './index.html';
+      });
   });
 
   loadProfile();

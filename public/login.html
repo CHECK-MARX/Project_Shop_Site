@@ -39,11 +39,16 @@
       const username = document.getElementById('username').value;
       const password = document.getElementById('password').value;
       try{
-        const res = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username, password})});
+        const res = await fetch('/api/login', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          credentials:'include',
+          body:JSON.stringify({username, password})
+        });
         const data = await res.json();
         if(!res.ok) throw new Error(data.error||'login failed');
-        localStorage.setItem('user', JSON.stringify(data.user));
-        localStorage.setItem('token', data.token);
+        ['token','jwt','jwtToken','auth_token','authToken'].forEach(k=>localStorage.removeItem(k));
+        localStorage.setItem('auth_user', JSON.stringify(data.user||{}));
         show(`ようこそ <b>${username}</b> さん`, 'success');
         setTimeout(()=>location.href='/products.html', 800);
       }catch(err){ show('ログイン失敗: '+err.message, 'danger'); }

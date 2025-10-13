@@ -11,8 +11,12 @@
   const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
   const fmtJPY = n => `¥${Math.round(Number(n||0)).toLocaleString('ja-JP')}`;
   const Auth = window.Auth || {
-    getToken(){ return localStorage.getItem('token') || ''; },
-    isLoggedIn(){ return !!localStorage.getItem('token'); }
+    isLoggedIn(){
+      try {
+        const raw = localStorage.getItem('auth_user');
+        return !!raw && raw !== 'null';
+      } catch { return false; }
+    }
   };
 
   // ---- レイアウト生成（無ければ作る） ----
@@ -121,13 +125,6 @@
   async function fetchSales({ append=false } = {}){
     const { tbody, countEl } = els();
 
-    const t = (Auth.getToken?.() || '').trim();
-    if (!t){
-      if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:#ff9a9a;padding:8px">取得に失敗しました（権限が必要な可能性）</td></tr>`;
-      updateCount(countEl);
-      return;
-    }
-
     const qs = new URLSearchParams();
     const f = state.filters;
     if (f.user)    qs.set('user', f.user);
@@ -138,11 +135,14 @@
     qs.set('offset', String(state.offset));
 
     try{
-      const r = await fetch(`/api/admin/sales-timeline?${qs.toString()}`, {
-        headers: { Authorization: `Bearer ${t}` }
-      });
+      const r = await fetch(`/api/admin/sales-timeline?${qs.toString()}`, { credentials:'include' });
+      if (r.status === 401){
+        if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:#ff9a9a;padding:8px">Unauthorized</td></tr>`;
+        updateCount(countEl);
+        return;
+      }
       if (!r.ok){
-        if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:#ff9a9a;padding:8px">取得に失敗しました（HTTP ${r.status}）</td></tr>`;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:#ff9a9a;padding:8px">Failed (HTTP ${r.status})</td></tr>`;
         return;
       }
       const rows = await r.json();
@@ -158,7 +158,7 @@
       updateCount(countEl);
     }catch(e){
       console.error(e);
-      if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:#ff9a9a;padding:8px">取得に失敗しました</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:#ff9a9a;padding:8px">Failed to load</td></tr>`;
     }
   }
 

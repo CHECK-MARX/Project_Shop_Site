@@ -13,12 +13,15 @@
 
   // ==== Auth bridge ====
   const FallbackAuth = {
-    getToken(){ return localStorage.getItem('token') || ''; },
+    getToken(){ return ''; },
     getUser(){
       try{ const raw = localStorage.getItem('auth_user'); return raw?JSON.parse(raw):null; }
       catch{ return null; }
     },
-    isLoggedIn(){ return !!localStorage.getItem('token'); },
+    isLoggedIn(){
+      const user = this.getUser();
+      return !!(user && user.username);
+    },
     openLogin(){
       const m = $('#loginModal');
       if (m){ m.classList.remove('hidden'); m.classList.add('open'); document.body.classList.add('modal-open'); }
@@ -28,15 +31,17 @@
   window.Auth = Auth;
 
   // ==== 認証付き fetch 共通化 ====
-  function authHeaders(){ const t=(Auth.getToken?.()||'').trim(); return t?{Authorization:`Bearer ${t}`}:{ }; }
   async function fetchJSON(url, opts={}){
-    const r = await fetch(url, { ...opts, headers: { 'Content-Type':'application/json', ...(opts.headers||{}), ...authHeaders() } });
+    const r = await fetch(url, {
+      credentials: 'include',
+      ...opts,
+      headers: { 'Content-Type':'application/json', ...(opts.headers||{}) }
+    });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.json();
   }
   async function apiAuthGet(url){ return fetchJSON(url); }
   window.apiAuthGet = window.apiAuthGet || apiAuthGet;
-  window.authHeaders = window.authHeaders || authHeaders;
   window.fetchJSON   = window.fetchJSON   || fetchJSON;
 
   // ==== cart ====
@@ -83,11 +88,14 @@
     if (pill) { if (isIn && user?.username) { pill.textContent = user.username; pill.hidden = false; } else { pill.hidden = true; pill.textContent = ''; } }
   }
   document.addEventListener('DOMContentLoaded', updateAuthUI);
-  window.addEventListener('storage', (e)=>{ if (e.key === 'token' || e.key === 'auth_user') updateAuthUI(); });
+  window.addEventListener('storage', (e)=>{ if (e.key === 'auth_user') updateAuthUI(); });
   window.addEventListener('auth:changed', updateAuthUI);
   document.getElementById('logoutBtn')?.addEventListener('click', ()=>{
-    localStorage.removeItem('token'); localStorage.removeItem('auth_user');
-    updateAuthUI(); location.href = './index.html';
+    fetch('/api/logout', { method:'POST', credentials:'include' }).finally(()=>{
+      localStorage.removeItem('auth_user');
+      updateAuthUI();
+      location.href = './index.html';
+    });
   });
 
   // ==== products grid ====
@@ -221,20 +229,43 @@
 
   // ==== Admin ナビ ====
   async function fetchMe() {
-    const t = Auth.getToken?.() || ''; if (!t) return null;
-    try { const r = await fetch('/api/me', { headers: { Authorization: `Bearer ${t}` } }); if (!r.ok) return null; const b = await r.json(); return b && b.user; }
-    catch { return null; }
+    try {
+      const r = await fetch('/api/me', { credentials:'include' });
+      if (!r.ok) return null;
+      const b = await r.json();
+      return b && b.user;
+    } catch { return null; }
   }
   function renderAdminLinks(isAdmin) {
     const nav = document.querySelector('.nav-links'); if (!nav) return;
     document.getElementById('navInventory')?.remove();
     document.getElementById('navAdmin')?.remove();
     if (!isAdmin) return;
-    const inv = document.createElement('a'); inv.id='navInventory'; inv.href='./inventory.html'; inv.textContent='在庫管理';
-    const adm = document.createElement('a'); adm.id='navAdmin';    adm.href='./admin.html';     adm.textContent='管理ダッシュボード';
+
+    const path = (location.pathname || '').toLowerCase();
+    const makeLink = (id, href, label) => {
+      const a = document.createElement('a');
+      a.id = id;
+      a.href = href;
+      a.textContent = label;
+      if (path.endsWith(href.replace('./','/'))) {
+        a.setAttribute('aria-current', 'page');
+        a.style.fontWeight = '700';
+      }
+      return a;
+    };
+
+    const adm = makeLink('navAdmin', './admin.html', '管理ダッシュボード');
+    const inv = makeLink('navInventory', './inventory.html', '在庫管理');
     const authBtns = document.querySelector('.auth-buttons'); const parent = authBtns?.parentElement;
-    try{ if (authBtns && parent){ parent.insertBefore(adm, authBtns); parent.insertBefore(inv, authBtns); } else { nav.appendChild(adm); nav.appendChild(inv); } }
-    catch{ nav.appendChild(adm); nav.appendChild(inv); }
+    const insert = (el) => {
+      try {
+        if (authBtns && parent) parent.insertBefore(el, authBtns);
+        else nav.appendChild(el);
+      } catch { nav.appendChild(el); }
+    };
+    insert(adm);
+    insert(inv);
   }
   async function updateAdminNav(){ try{ const me = await fetchMe(); renderAdminLinks(!!me && me.role==='admin'); }catch{} }
   window.updateAdminNav = window.updateAdminNav || updateAdminNav;
@@ -245,7 +276,6 @@
     box.innerHTML = '';
     async function fetchPublic(){ const r = await fetch(`/api/bestsellers?limit=${encodeURIComponent(limit)}`); if(!r.ok) throw new Error(r.status); return r.json(); }
     async function fetchAdmin(){
-      const t=(Auth.getToken?.()||'').trim(); if(!t) throw new Error('no token');
       const sales = await fetchJSON('/api/admin/sales-summary');
       const products = await (async()=>{ try{ return await (await fetch('/api/products')).json(); }catch{ return []; }})();
       const pmap = new Map(products.map(p=>[Number(p.id), p]));
@@ -320,7 +350,7 @@
   // 他タブ同期
   window.addEventListener('storage', ev=>{
     if (ev.key && ev.key.startsWith('cart:')){ updateCartBadge(); renderCartPage(); if ($('#productsGrid')){ const q=new URLSearchParams(location.search).get('q')||''; loadProducts(q); } }
-    if (ev.key === 'auth_user' || ev.key === 'token'){ clearGuestCartOnLogin(); updateCartBadge(); renderCartPage(); updateAdminNav(); }
+    if (ev.key === 'auth_user'){ clearGuestCartOnLogin(); updateCartBadge(); renderCartPage(); updateAdminNav(); }
   });
   window.addEventListener('focus', ()=> updateAdminNav());
   window.addEventListener('auth:changed', ()=> updateAdminNav());

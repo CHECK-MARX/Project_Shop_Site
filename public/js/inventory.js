@@ -2,10 +2,8 @@
   'use strict';
 // === 認証/管理者チェック（inventory.js の先頭付近に置く） ===
 async function fetchMe() {
-  const t = localStorage.getItem('token') || '';
-  if (!t) return null;
   try {
-    const r = await fetch('/api/me', { headers: { Authorization: 'Bearer ' + t } });
+    const r = await fetch('/api/me', { credentials:'include' });
     if (!r.ok) return null;
     return await r.json();
   } catch { return null; }
@@ -41,12 +39,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // simple Auth bridge
   const Auth = {
-    token(){ return localStorage.getItem('token') || ''; },
     async me(){
-      const t = this.token();
-      if (!t) return null;
       try{
-        const r = await fetch('/api/me', { headers:{ Authorization:`Bearer ${t}` }});
+        const r = await fetch('/api/me', { credentials:'include' });
         if (!r.ok) return null;
         return (await r.json())?.user ?? null;
       }catch{ return null; }
@@ -54,16 +49,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   async function apiAuthGet(url){
-    const r = await fetch(url, { headers:{ Authorization:`Bearer ${Auth.token()}` }});
+    const r = await fetch(url, { credentials:'include' });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.json();
   }
   async function apiAuthJSON(url, method, body){
     const r = await fetch(url, {
       method,
+      credentials:'include',
       headers:{
-        'Content-Type':'application/json',
-        Authorization:`Bearer ${Auth.token()}`
+        'Content-Type':'application/json'
       },
       body: JSON.stringify(body||{})
     });

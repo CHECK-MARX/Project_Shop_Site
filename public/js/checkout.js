@@ -13,9 +13,8 @@
 
   // Auth は script.js で公開済み（なければ簡易フォールバック）
   const Auth = window.Auth || {
-    getToken(){ return localStorage.getItem('token') || ''; },
     getUser(){ try{ return JSON.parse(localStorage.getItem('auth_user')||'null'); }catch{return null;} },
-    isLoggedIn(){ return !!localStorage.getItem('token'); }
+    isLoggedIn(){ return !!(this.getUser() && this.getUser().username); }
   };
 
   // script.js と同じロジックで cart:<username|guest> を読む
@@ -33,12 +32,11 @@
   }
 
   async function apiAuthPost(url, body){
-    const t = (Auth.getToken?.() || '').trim();
     const r = await fetch(url, {
       method: 'POST',
+      credentials: 'include',
       headers: {
-        'Content-Type':'application/json',
-        ...(t ? { Authorization: `Bearer ${t}` } : {})
+        'Content-Type':'application/json'
       },
       body: JSON.stringify(body||{})
     });
@@ -139,7 +137,7 @@
     // 他タブでのカート変更・ログイン状態変化にも追随
     window.addEventListener('storage', ev=>{
       if (!ev.key) return;
-      if (ev.key === cartKey() || ev.key === 'token' || ev.key === 'auth_user') calcTotals();
+      if (ev.key === cartKey() || ev.key === 'auth_user') calcTotals();
     });
   });
 })();
