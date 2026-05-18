@@ -12,20 +12,51 @@ process.on('unhandledRejection', (err) => {
   console.error('[unhandledRejection]', err);
 });
 
-let ENV_LOADED = false;
-try { require('dotenv').config(); ENV_LOADED = true; } catch {}
-
 /* ─────────────────────────
    1) 依存・基本設定
 ───────────────────────── */
 const express = require('express');
 const { DatabaseSync } = require('node:sqlite');
 const bcrypt  = require('bcrypt');
-const cors    = require('cors');
-const cookieParser = require('cookie-parser');
 const path    = require('path');
 const fs      = require('fs');
 const fsp     = fs.promises;
+
+let ENV_LOADED = false;
+function loadEnvFile(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return false;
+    const raw = fs.readFileSync(filePath, 'utf8');
+    for (const lineRaw of raw.split(/\r?\n/)) {
+      const line = String(lineRaw || '');
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = line.indexOf('=');
+      if (eq <= 0) continue;
+      const key = line.slice(0, eq).trim();
+      if (!key || process.env[key] !== undefined) continue;
+      let value = line.slice(eq + 1).trim();
+      if (value.startsWith('"') && value.endsWith('"')) {
+        value = value.slice(1, -1)
+          .replace(/\\n/g, '\n')
+          .replace(/\\r/g, '\r')
+          .replace(/\\t/g, '\t')
+          .replace(/\\"/g, '"')
+          .replace(/\\\\/g, '\\');
+      } else if (value.startsWith("'") && value.endsWith("'")) {
+        value = value.slice(1, -1).replace(/\\'/g, "'");
+      } else {
+        const cmt = value.indexOf(' #');
+        if (cmt >= 0) value = value.slice(0, cmt).trimEnd();
+      }
+      process.env[key] = value;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+ENV_LOADED = loadEnvFile(path.join(__dirname, '.env'));
 
 function normalizeDbArgs(params, cb) {
   let args = params;
@@ -148,10 +179,40 @@ const DEV_ROOT_EMAIL = process.env.ADMIN_DEFAULT_EMAIL || 'root@local';
 const COOKIE_NAME = 'session_token';
 const IS_PROD = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
 
-app.use(cors({ origin: true, credentials: true }));
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    const hdr = req.headers['access-control-request-headers'];
+    if (hdr) res.setHeader('Access-Control-Allow-Headers', String(hdr));
+    return res.status(204).end();
+  }
+  return next();
+});
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser());
+app.use((req, _res, next) => {
+  const out = {};
+  const raw = String(req.headers.cookie || '');
+  if (raw) {
+    for (const part of raw.split(';')) {
+      const i = part.indexOf('=');
+      if (i < 0) continue;
+      const k = part.slice(0, i).trim();
+      const v = part.slice(i + 1).trim();
+      if (!k) continue;
+      try { out[k] = decodeURIComponent(v); }
+      catch { out[k] = v; }
+    }
+  }
+  req.cookies = out;
+  next();
+});
 
 // 静的ファイル（/public）
 app.use(express.static(path.join(__dirname, 'public')));
