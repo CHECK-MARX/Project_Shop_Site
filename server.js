@@ -15,7 +15,7 @@ process.on('unhandledRejection', (err) => {
 /* ─────────────────────────
    1) 依存・基本設定
 ───────────────────────── */
-const express = require('express');
+const express = require('./tiny-express');
 const { DatabaseSync } = require('node:sqlite');
 const bcrypt  = require('bcrypt');
 const path    = require('path');
