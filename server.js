@@ -21,7 +21,6 @@ try { require('dotenv').config(); ENV_LOADED = true; } catch {}
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const bcrypt  = require('bcrypt');
-const jwt     = require('jsonwebtoken');
 const cors    = require('cors');
 const cookieParser = require('cookie-parser');
 const path    = require('path');
@@ -184,7 +183,25 @@ ensureOrdersSchema().then(ensureBuyerUsernameSnapshot);
 const esc = s => String(s ?? '')
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
   .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-const sign = p => jwt.sign(p, JWT_KEY, { expiresIn: '24h' });
+const JWT_SECRET = new TextEncoder().encode(JWT_KEY);
+let joseModulePromise = null;
+function getJose() {
+  if (!joseModulePromise) joseModulePromise = import('jose');
+  return joseModulePromise;
+}
+async function sign(payload) {
+  const { SignJWT } = await getJose();
+  return new SignJWT(payload)
+    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
+    .setIssuedAt()
+    .setExpirationTime('24h')
+    .sign(JWT_SECRET);
+}
+async function verifyToken(token) {
+  const { jwtVerify } = await getJose();
+  const { payload } = await jwtVerify(token, JWT_SECRET, { algorithms: ['HS256'] });
+  return { userId: Number(payload.userId), role: String(payload.role || '') };
+}
 const cookieOpts = {
   maxAge: 24 * 60 * 60 * 1000,
   httpOnly: true,
@@ -192,16 +209,21 @@ const cookieOpts = {
   secure: IS_PROD,
   path: '/'
 };
-function requireAuth(req,res,next){
+async function requireAuth(req,res,next){
   const headerToken = (req.headers.authorization||'').replace(/^Bearer\s+/i,'').trim();
   const cookieToken = (req.cookies && req.cookies[COOKIE_NAME]) ? String(req.cookies[COOKIE_NAME]) : '';
   const t = headerToken || cookieToken;
   if(!t) return res.status(401).json({error:'No token'});
-  try { req.user = jwt.verify(t, JWT_KEY); next(); }
+  try {
+    const user = await verifyToken(t);
+    if (!Number.isFinite(user.userId) || !user.role) return res.status(401).json({error:'Invalid token'});
+    req.user = user;
+    return next();
+  }
   catch { return res.status(401).json({error:'Invalid token'}); }
 }
 function requireAdmin(req,res,next){
-  requireAuth(req,res,()=> (req.user?.role==='admin') ? next() : res.status(403).json({error:'forbidden'}));
+  return requireAuth(req,res,()=> (req.user?.role==='admin') ? next() : res.status(403).json({error:'forbidden'}));
 }
 
 /* ─────────────────────────
@@ -218,7 +240,7 @@ app.post('/api/login', async (req,res)=>{
     if (u.password && u.password.length > 20) { try { ok = bcrypt.compareSync(pass, u.password); } catch {} }
     else { ok = (u.password === pass); }
     if(!ok) return res.status(401).json({error:'Invalid credentials'});
-    const token = sign({ userId:u.id, role:u.role });
+    const token = await sign({ userId:u.id, role:u.role });
     res.cookie(COOKIE_NAME, token, cookieOpts);
     res.json({ user: { id:u.id, username:u.username, role:u.role } });
   }catch{ res.status(500).json({error:'DB error'}); }
