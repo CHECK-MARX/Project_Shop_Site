@@ -17,7 +17,7 @@ process.on('unhandledRejection', (err) => {
 ───────────────────────── */
 const express = require('./tiny-express');
 const { DatabaseSync } = require('node:sqlite');
-const bcrypt  = require('bcrypt');
+const crypto  = require('crypto');
 const path    = require('path');
 const fs      = require('fs');
 const fsp     = fs.promises;
@@ -174,6 +174,9 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 
 const JWT_KEY = process.env.JWT_SECRET || 'weak-jwt-secret';
+const JWT_SECRET = Buffer.from(String(JWT_KEY || ''), 'utf8');
+const TOKEN_LIFETIME_SEC = 24 * 60 * 60;
+const SCRYPT_PREFIX = 'scrypt$';
 const DEV_ROOT = String(process.env.ENABLE_DEV_ROOT || '').toLowerCase() === 'true';
 const DEV_ROOT_EMAIL = process.env.ADMIN_DEFAULT_EMAIL || 'root@local';
 const COOKIE_NAME = 'session_token';
@@ -312,15 +315,15 @@ async function ensureOrdersSchema(){
 ───────────────────────── */
 function ensureAdminBootstrap() {
   db.run(`INSERT OR IGNORE INTO users (username,email,password,role)
-          VALUES ('admin','admin@shop.com','admin123','admin')`);
+          VALUES ('admin','admin@shop.com',?,'admin')`, [hashPassword('admin123')]);
   db.run(`UPDATE users SET role='admin' WHERE username='admin' AND role <> 'admin'`);
-  db.run(`UPDATE users SET password='admin123' WHERE username='admin'`);
+  db.run(`UPDATE users SET password=? WHERE username='admin'`, [hashPassword('admin123')]);
 
   if (DEV_ROOT) {
     db.run(`INSERT OR IGNORE INTO users (username,email,password,role)
-            VALUES ('root', ?, 'root', 'admin')`, [DEV_ROOT_EMAIL]);
+            VALUES ('root', ?, ?, 'admin')`, [DEV_ROOT_EMAIL, hashPassword('root')]);
     db.run(`UPDATE users SET role='admin', email=? WHERE username='root'`, [DEV_ROOT_EMAIL]);
-    db.run(`UPDATE users SET password='root' WHERE username='root'`);
+    db.run(`UPDATE users SET password=? WHERE username='root'`, [hashPassword('root')]);
     console.log('[BOOT] DEV_ROOT=true により root/root (admin) を確保しました');
   }
 }
@@ -355,23 +358,71 @@ ensureOrdersSchema().then(ensureBuyerUsernameSnapshot);
 const esc = s => String(s ?? '')
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
   .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-const JWT_SECRET = new TextEncoder().encode(JWT_KEY);
-let joseModulePromise = null;
-function getJose() {
-  if (!joseModulePromise) joseModulePromise = import('jose');
-  return joseModulePromise;
+function b64urlEncode(input) {
+  return Buffer.from(input)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+function b64urlDecode(input) {
+  let s = String(input || '').replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  return Buffer.from(s, 'base64');
+}
+function safeEqualText(a, b) {
+  const aa = Buffer.from(String(a ?? ''), 'utf8');
+  const bb = Buffer.from(String(b ?? ''), 'utf8');
+  return aa.length === bb.length && crypto.timingSafeEqual(aa, bb);
+}
+function hashPassword(raw) {
+  const salt = crypto.randomBytes(16);
+  const key = crypto.scryptSync(String(raw ?? ''), salt, 64);
+  return `${SCRYPT_PREFIX}${salt.toString('hex')}$${key.toString('hex')}`;
+}
+function verifyPassword(raw, stored) {
+  const plain = String(raw ?? '');
+  const saved = String(stored ?? '');
+  if (saved.startsWith(SCRYPT_PREFIX)) {
+    const parts = saved.split('$');
+    if (parts.length !== 3) return false;
+    try {
+      const salt = Buffer.from(parts[1], 'hex');
+      const expect = Buffer.from(parts[2], 'hex');
+      const actual = crypto.scryptSync(plain, salt, expect.length);
+      return expect.length === actual.length && crypto.timingSafeEqual(expect, actual);
+    } catch {
+      return false;
+    }
+  }
+  return safeEqualText(plain, saved);
 }
 async function sign(payload) {
-  const { SignJWT } = await getJose();
-  return new SignJWT(payload)
-    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
-    .setIssuedAt()
-    .setExpirationTime('24h')
-    .sign(JWT_SECRET);
+  const now = Math.floor(Date.now() / 1000);
+  const headerPart = b64urlEncode(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const bodyPart = b64urlEncode(JSON.stringify({ ...payload, iat: now, exp: now + TOKEN_LIFETIME_SEC }));
+  const data = `${headerPart}.${bodyPart}`;
+  const sig = crypto.createHmac('sha256', JWT_SECRET).update(data).digest();
+  return `${data}.${b64urlEncode(sig)}`;
 }
 async function verifyToken(token) {
-  const { jwtVerify } = await getJose();
-  const { payload } = await jwtVerify(token, JWT_SECRET, { algorithms: ['HS256'] });
+  const parts = String(token || '').split('.');
+  if (parts.length !== 3) throw new Error('bad_token');
+  let header;
+  let payload;
+  try {
+    header = JSON.parse(b64urlDecode(parts[0]).toString('utf8'));
+    payload = JSON.parse(b64urlDecode(parts[1]).toString('utf8'));
+  } catch {
+    throw new Error('bad_token');
+  }
+  if (!header || header.alg !== 'HS256' || header.typ !== 'JWT') throw new Error('bad_header');
+  const data = `${parts[0]}.${parts[1]}`;
+  const expectSig = crypto.createHmac('sha256', JWT_SECRET).update(data).digest();
+  const gotSig = b64urlDecode(parts[2]);
+  if (expectSig.length !== gotSig.length || !crypto.timingSafeEqual(expectSig, gotSig)) throw new Error('bad_signature');
+  const now = Math.floor(Date.now() / 1000);
+  if (!Number.isFinite(Number(payload.exp)) || Number(payload.exp) <= now) throw new Error('expired');
   return { userId: Number(payload.userId), role: String(payload.role || '') };
 }
 const cookieOpts = {
@@ -408,9 +459,7 @@ app.post('/api/login', async (req,res)=>{
   try{
     const u = await dbGet(`SELECT * FROM users WHERE username=?`, [uname]);
     if(!u) return res.status(401).json({error:'Invalid credentials'});
-    let ok = false;
-    if (u.password && u.password.length > 20) { try { ok = bcrypt.compareSync(pass, u.password); } catch {} }
-    else { ok = (u.password === pass); }
+    const ok = verifyPassword(pass, u.password);
     if(!ok) return res.status(401).json({error:'Invalid credentials'});
     const token = await sign({ userId:u.id, role:u.role });
     res.cookie(COOKIE_NAME, token, cookieOpts);
@@ -434,7 +483,7 @@ app.post('/api/register', async (req,res)=>{
     );
     const r = await dbRun(
       `INSERT INTO users (username,email,password,role) VALUES (?,?,?,'user')`,
-      [username.trim(), String(email||'').trim(), password]
+      [username.trim(), String(email||'').trim(), hashPassword(password)]
     );
     res.json({ ok:true, id:r.lastID, reRegistered: !!prev });
   }catch(e){
@@ -493,13 +542,11 @@ app.put('/api/me/password', requireAuth, async (req,res)=>{
     const u = await dbGet(`SELECT id,password FROM users WHERE id=?`, [req.user.userId]);
     if(!u) return res.status(404).json({ error:'not_found' });
 
-    let ok = false;
-    if (u.password && u.password.length > 20) { try { ok = await bcrypt.compare(current, u.password); } catch {} }
-    else { ok = (u.password === current); }
+    const ok = verifyPassword(current, u.password);
     if (!ok) return res.status(401).json({ error:'wrong_password' });
 
-    // 教育用: 平文保存（本番は bcrypt.hash で）
-    await dbRun(`UPDATE users SET password=? WHERE id=?`, [String(next), req.user.userId]);
+    // 教育用: 標準crypto(scrypt)で保存
+    await dbRun(`UPDATE users SET password=? WHERE id=?`, [hashPassword(next), req.user.userId]);
     res.json({ ok:true });
   }catch(e){ res.status(500).json({ error:'db' }); }
 });
@@ -549,7 +596,7 @@ app.put('/api/admin/users/:id/password', requireAdmin, async (req,res)=>{
   const { id } = req.params; const { password } = req.body||{};
   if(!password) return res.status(400).json({error:'password required'});
   try{
-    const r = await dbRun(`UPDATE users SET password=? WHERE id=?`, [String(password), Number(id)]);
+    const r = await dbRun(`UPDATE users SET password=? WHERE id=?`, [hashPassword(password), Number(id)]);
     res.json({ ok:true, updated:r.changes });
   }catch{ res.status(500).json({error:'DB error'}); }
 });
