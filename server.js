@@ -19,13 +19,124 @@ try { require('dotenv').config(); ENV_LOADED = true; } catch {}
    1) 依存・基本設定
 ───────────────────────── */
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
+const { DatabaseSync } = require('node:sqlite');
 const bcrypt  = require('bcrypt');
 const cors    = require('cors');
 const cookieParser = require('cookie-parser');
 const path    = require('path');
 const fs      = require('fs');
 const fsp     = fs.promises;
+
+function normalizeDbArgs(params, cb) {
+  let args = params;
+  let callback = cb;
+  if (typeof args === 'function') {
+    callback = args;
+    args = [];
+  }
+  if (args === undefined || args === null) args = [];
+  if (!Array.isArray(args)) args = [args];
+  return { args, callback };
+}
+
+function createRunContext(info) {
+  return {
+    lastID: Number(info?.lastInsertRowid ?? 0),
+    changes: Number(info?.changes ?? 0)
+  };
+}
+
+class CompatStatement {
+  constructor(stmt) {
+    this._stmt = stmt;
+  }
+  run(params, cb) {
+    const { args, callback } = normalizeDbArgs(params, cb);
+    try {
+      const info = this._stmt.run(...args);
+      const ctx = createRunContext(info);
+      if (callback) callback.call(ctx, null);
+      return ctx;
+    } catch (err) {
+      if (callback) {
+        callback.call(createRunContext(null), err);
+        return createRunContext(null);
+      }
+      throw err;
+    }
+  }
+  finalize(cb) {
+    if (typeof cb === 'function') cb(null);
+  }
+}
+
+class CompatDatabase {
+  constructor(filename) {
+    this._db = new DatabaseSync(filename);
+    this._db.exec('PRAGMA busy_timeout=3000');
+  }
+  serialize(fn) {
+    if (typeof fn === 'function') fn();
+    return this;
+  }
+  run(sql, params, cb) {
+    const { args, callback } = normalizeDbArgs(params, cb);
+    try {
+      const info = this._db.prepare(String(sql)).run(...args);
+      const ctx = createRunContext(info);
+      if (callback) callback.call(ctx, null);
+      return this;
+    } catch (err) {
+      if (callback) {
+        callback.call(createRunContext(null), err);
+        return this;
+      }
+      throw err;
+    }
+  }
+  get(sql, params, cb) {
+    const { args, callback } = normalizeDbArgs(params, cb);
+    try {
+      const row = this._db.prepare(String(sql)).get(...args);
+      if (callback) callback(null, row);
+      return row;
+    } catch (err) {
+      if (callback) {
+        callback(err);
+        return undefined;
+      }
+      throw err;
+    }
+  }
+  all(sql, params, cb) {
+    const { args, callback } = normalizeDbArgs(params, cb);
+    try {
+      const rows = this._db.prepare(String(sql)).all(...args);
+      if (callback) callback(null, rows);
+      return rows;
+    } catch (err) {
+      if (callback) {
+        callback(err);
+        return [];
+      }
+      throw err;
+    }
+  }
+  prepare(sql) {
+    return new CompatStatement(this._db.prepare(String(sql)));
+  }
+  close(cb) {
+    try {
+      this._db.close();
+      if (typeof cb === 'function') cb(null);
+    } catch (err) {
+      if (typeof cb === 'function') cb(err);
+      else throw err;
+    }
+  }
+}
+
+const sqlite3 = { Database: CompatDatabase, verbose() { return this; } }.verbose();
 
 const app  = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
