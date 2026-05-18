@@ -759,7 +759,6 @@ def python_products():
     products = fetch_products()
     return render_template_string(TEMPLATE_PRODUCTS, products=products)
 
-
 @app.route("/python-products/dashboard")
 def python_dashboard():
     return render_template_string(TEMPLATE_DASHBOARD, weekly_window=DEFAULT_WEEKLY_WINDOW)
@@ -773,7 +772,6 @@ def python_metrics():
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": str(exc)}), 500
     return jsonify(metrics)
-
 
 @app.route("/")
 def root_redirect():
