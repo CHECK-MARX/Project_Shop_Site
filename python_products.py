@@ -129,10 +129,11 @@ def gather_metrics(
     conn = get_connection()
     try:
         order_columns = {info[1] for info in conn.execute("PRAGMA table_info(orders)")}
-        order_sort_col = "created_at" if "created_at" in order_columns else "id"
-        orders = conn.execute(
-            f"SELECT * FROM orders ORDER BY {order_sort_col} DESC"
-        ).fetchall()
+        if "created_at" in order_columns:
+            orders_query = "SELECT * FROM orders ORDER BY created_at DESC"
+        else:
+            orders_query = "SELECT * FROM orders ORDER BY id DESC"
+        orders = conn.execute(orders_query).fetchall()
 
         order_items = conn.execute(
             "SELECT oi.*, p.name AS product_name, p.stock, p.image_path "
@@ -768,9 +769,14 @@ def python_dashboard():
 def python_metrics():
     days = request.args.get("days", "30")
     try:
-        metrics = gather_metrics(range_days=int(days))
-    except Exception as exc:  # noqa: BLE001
-        return jsonify({"error": str(exc)}), 500
+        normalized_days = max(1, min(int(days), 365))
+    except (TypeError, ValueError):
+        return jsonify({"error": "days must be an integer between 1 and 365"}), 400
+
+    try:
+        metrics = gather_metrics(range_days=normalized_days)
+    except sqlite3.Error:
+        return jsonify({"error": "Failed to load metrics"}), 500
     return jsonify(metrics)
 
 @app.route("/")

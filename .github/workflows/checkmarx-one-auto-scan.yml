@@ -27,4 +27,6 @@ jobs:
           cx_client_id: ${{ secrets.CX_CLIENT_ID || secrets.CHECKMARX_CLIENT_ID || secrets.CXONE_CLIENT_ID }}
           cx_client_secret: ${{ secrets.CX_CLIENT_SECRET || secrets.CHECKMARX_CLIENT_SECRET || secrets.CXONE_CLIENT_SECRET }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          scan_params: >-
+            --use-gitignore --file-filter '!**/venv/**,!**/node_modules/**,!**/scan_result/**,!**/backups/**,!**/uploads/**,!**/__pycache__/**'
 

@@ -152,6 +152,7 @@ backups/
 # Upload files
 uploads/
 temp/
+scan_result/
 
 # Security sensitive files
 *.pem
@@ -159,3 +160,6 @@ temp/
 *.crt
 *.p12
 *.pfx
+
+# Security scan artifacts
+bandit_*.json
