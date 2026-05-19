@@ -4,6 +4,25 @@ const path = require('path');
 const app = express();
 const PORT = 3000;
 
+const CSP_HEADER = [
+  "default-src 'self'",
+  "style-src 'self'",
+  "img-src 'self' data:",
+  "form-action 'self'",
+  "base-uri 'self'",
+  "frame-ancestors 'none'",
+].join('; ');
+
+function sendHtml(res, html) {
+  res.setHeader('Content-Security-Policy', CSP_HEADER);
+  res.type('html').send(html);
+}
+
+app.use((_req, res, next) => {
+  res.setHeader('Content-Security-Policy', CSP_HEADER);
+  next();
+});
+
 // 静的ファイル（/public配下）
 app.use('/public', express.static(path.join(__dirname, 'public')));
 
@@ -16,11 +35,12 @@ const products = [
 
 // GET /
 app.get('/', (req, res) => {
-  res.send(`
+  sendHtml(res, `
     <!DOCTYPE html>
     <html lang="ja">
     <head>
       <meta charset="UTF-8">
+      <meta http-equiv="Content-Security-Policy" content="${CSP_HEADER}">
       <title>DASTデモショップ</title>
       <link rel="stylesheet" href="/public/styles.css">
     </head>
@@ -39,11 +59,12 @@ app.get('/', (req, res) => {
 // GET /products
 app.get('/products', (req, res) => {
   const rows = products.map(p => `<tr><td>${p.id}</td><td>${p.name}</td><td>¥${p.price}</td></tr>`).join('');
-  res.send(`
+  sendHtml(res, `
     <!DOCTYPE html>
     <html lang="ja">
     <head>
       <meta charset="UTF-8">
+      <meta http-equiv="Content-Security-Policy" content="${CSP_HEADER}">
       <title>商品一覧 - DASTデモショップ</title>
       <link rel="stylesheet" href="/public/styles.css">
     </head>
@@ -62,11 +83,12 @@ app.get('/products', (req, res) => {
 
 // GET /login
 app.get('/login', (req, res) => {
-  res.send(`
+  sendHtml(res, `
     <!DOCTYPE html>
     <html lang="ja">
     <head>
       <meta charset="UTF-8">
+      <meta http-equiv="Content-Security-Policy" content="${CSP_HEADER}">
       <title>ログイン - DASTデモショップ</title>
       <link rel="stylesheet" href="/public/styles.css">
     </head>

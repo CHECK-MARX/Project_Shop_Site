@@ -15,7 +15,7 @@
 
   const clearLegacyTokens = () => {
     for (const key of LEGACY_KEYS) {
-      try { localStorage.removeItem(key); } catch (_) {}
+      try { localStorage.removeItem(key); } catch (err) { console.warn('Failed to remove legacy token from localStorage:', key, err); }
     }
   };
   clearLegacyTokens();
@@ -38,31 +38,7 @@
     if (regBtn)    regBtn.style.display    = loggedIn ? 'none'        : 'inline-block';
   };
 
-  const mergeGuestCart = (user) => {
-    const username = user?.username;
-    if (!username) return;
-    try {
-      const guestRaw = localStorage.getItem('cart:guest');
-      if (!guestRaw) return;
-      const guestItems = JSON.parse(guestRaw || '[]');
-      if (!Array.isArray(guestItems) || guestItems.length === 0) return;
-
-      const userKey = `cart:${username}`;
-      const currentItems = JSON.parse(localStorage.getItem(userKey) || '[]') || [];
-      guestItems.forEach((item) => {
-        const id = Number(item.productId ?? item.id);
-        const qty = Math.max(1, Number(item.qty) || 0);
-        if (!id || qty <= 0) return;
-        const idx = currentItems.findIndex((row) => Number(row.productId ?? row.id) === id);
-        if (idx >= 0) currentItems[idx].qty = Math.max(1, Number(currentItems[idx].qty) || 0) + qty;
-        else currentItems.push({ ...item, productId: id, qty });
-      });
-      localStorage.setItem(userKey, JSON.stringify(currentItems));
-      localStorage.removeItem('cart:guest');
-    } catch (_) {
-      /* ignore broken guest cart data */
-    }
-  };
+  const mergeGuestCart = () => { /* cart is in-memory only (see script.js AppCart) */ };
 
   const Auth = {
     getToken() {
@@ -99,7 +75,7 @@
     setSession(tokenOrUser, maybeUser) {
       const user = (maybeUser !== undefined) ? maybeUser : tokenOrUser;
       clearLegacyTokens();
-      try { localStorage.setItem(LS_USER, JSON.stringify(user || {})); } catch (_) {}
+      try { localStorage.setItem(LS_USER, JSON.stringify(user || {})); } catch (err) { console.warn('Failed to save auth user to localStorage:', err); }
       updateNav(user);
       mergeGuestCart(user);
       window.dispatchEvent(new Event('auth:changed'));
@@ -107,7 +83,7 @@
     clearSession(options = {}) {
       const opts = options || {};
       clearLegacyTokens();
-      try { localStorage.removeItem(LS_USER); } catch (_) {}
+      try { localStorage.removeItem(LS_USER); } catch (err) { console.warn('Failed to clear auth user from localStorage:', err); }
       updateNav(null);
       if (!opts.skipServer) {
         fetch('/api/logout', { method: 'POST', credentials: 'include' }).catch(() => {});

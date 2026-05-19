@@ -17,18 +17,11 @@
     isLoggedIn(){ return !!(this.getUser() && this.getUser().username); }
   };
 
-  // script.js と同じロジックで cart:<username|guest> を読む
-  function cartKey(){
-    const u = (Auth.getUser && Auth.getUser()) || null;
-    return `cart:${u?.username || 'guest'}`;
-  }
   function getCart(){
-    try { return JSON.parse(localStorage.getItem(cartKey()) || '[]'); }
-    catch { return []; }
+    return window.AppCart?.get?.() ?? [];
   }
   function setCart(list){
-    localStorage.setItem(cartKey(), JSON.stringify(list || []));
-    window.dispatchEvent(new StorageEvent('storage', { key: cartKey() })); // 他UI更新用
+    window.AppCart?.set?.(list ?? []);
   }
 
   async function apiAuthPost(url, body){
@@ -134,10 +127,9 @@
     calcTotals();
     form && form.addEventListener('submit', onSubmit);
 
-    // 他タブでのカート変更・ログイン状態変化にも追随
+    window.addEventListener('cart:changed', calcTotals);
     window.addEventListener('storage', ev=>{
-      if (!ev.key) return;
-      if (ev.key === cartKey() || ev.key === 'auth_user') calcTotals();
+      if (ev?.key === 'auth_user') calcTotals();
     });
   });
 })();

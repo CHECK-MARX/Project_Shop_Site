@@ -44,30 +44,26 @@
   window.apiAuthGet = window.apiAuthGet || apiAuthGet;
   window.fetchJSON   = window.fetchJSON   || fetchJSON;
 
-  // ==== cart ====
-  function cartKey(){ const u = Auth.getUser?.(); return `cart:${u?.username || 'guest'}`; }
-  function getCart(){ try{ return JSON.parse(localStorage.getItem(cartKey())||'[]'); }catch{ return []; } }
-  function setCart(list){ localStorage.setItem(cartKey(), JSON.stringify(list)); updateCartBadge(); renderCartPage(); }
+  // ==== cart (in-memory; do not persist cart in Web Storage) ====
+  const cartByScope = new Map();
+  const CART_SCOPE = 'active';
+
+  function getCart(){
+    const list = cartByScope.get(CART_SCOPE);
+    return Array.isArray(list) ? list.map(i => ({ ...i })) : [];
+  }
+  function setCart(list){
+    cartByScope.set(CART_SCOPE, Array.isArray(list) ? list.map(i => ({ ...i })) : []);
+    updateCartBadge();
+    renderCartPage();
+    window.dispatchEvent(new CustomEvent('cart:changed'));
+  }
+  window.AppCart = { get: getCart, set: setCart };
   function updateCartBadge(){
     const badge = $('#cartCount'); if (!badge) return;
     const q = getCart().reduce((s,i)=> s + (Number(i.qty)||0), 0);
     if (q>0){ badge.style.display='inline-block'; badge.textContent=String(q); }
     else { badge.style.display='none'; badge.textContent='0'; }
-  }
-  function clearGuestCartOnLogin(){
-    const u = Auth.getUser?.(); if (!u) return;
-    try{
-      const guest = JSON.parse(localStorage.getItem('cart:guest')||'[]');
-      if (!guest.length) return;
-      const cur = getCart();
-      for (const g of guest){
-        const i = cur.findIndex(x=>x.productId===g.productId);
-        if (i>=0) cur[i].qty = (cur[i].qty||0)+(g.qty||0);
-        else cur.push(g);
-      }
-      setCart(cur);
-      localStorage.removeItem('cart:guest');
-    }catch{}
   }
   function cartQtyOf(productId){ return getCart().reduce((s,i)=> s + (i.productId===productId ? (Number(i.qty)||0) : 0), 0); }
   function canAddOne(product){ const stock = Number(product.stock||0); if (!Number.isFinite(stock) || stock<=0) return false; return cartQtyOf(product.id) < stock; }
@@ -324,14 +320,14 @@
         </div>`;
       }).join('');
       if (hint) hint.textContent = '※ 直近5件まで表示しています。';
-    }catch{
+    }catch(e){
+      console.error('loadRecentOrders failed:', e);
       box.innerHTML = `<div class="alert alert-danger">注文履歴を取得できませんでした。</div>`; if (hint) hint.textContent='';
     }
   }
 
   // ==== init ====
   document.addEventListener('DOMContentLoaded', ()=>{
-    clearGuestCartOnLogin();
     updateCartBadge();
 
     const q = new URLSearchParams(location.search).get('q')||'';
@@ -347,10 +343,13 @@
     loadBestsellers(10);
   });
 
-  // 他タブ同期
+  window.addEventListener('cart:changed', ()=>{
+    updateCartBadge();
+    renderCartPage();
+    if ($('#productsGrid')){ const q=new URLSearchParams(location.search).get('q')||''; loadProducts(q); }
+  });
   window.addEventListener('storage', ev=>{
-    if (ev.key && ev.key.startsWith('cart:')){ updateCartBadge(); renderCartPage(); if ($('#productsGrid')){ const q=new URLSearchParams(location.search).get('q')||''; loadProducts(q); } }
-    if (ev.key === 'auth_user'){ clearGuestCartOnLogin(); updateCartBadge(); renderCartPage(); updateAdminNav(); }
+    if (ev.key === 'auth_user'){ cartByScope.delete(CART_SCOPE); updateCartBadge(); renderCartPage(); updateAdminNav(); }
   });
   window.addEventListener('focus', ()=> updateAdminNav());
   window.addEventListener('auth:changed', ()=> updateAdminNav());
