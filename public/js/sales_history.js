@@ -1,197 +1,257 @@
-// public/js/sales_history.js
-// 売上履歴（管理）: レイアウト自動生成＋件数表示＋ページング。/api/admin/sales-timeline のみ使用。
-
+﻿// public/js/sales_history.js - secure renderer for sales timeline
 (() => {
   'use strict';
   if (window.__SALES_HIST_WIRED__) return;
   window.__SALES_HIST_WIRED__ = true;
 
-  // ---- helpers ----
-  const $  = (s, r=document) => r.querySelector(s);
-  const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
-  const fmtJPY = n => `¥${Math.round(Number(n||0)).toLocaleString('ja-JP')}`;
-  const Auth = window.Auth || {
-    isLoggedIn(){
-      try {
-        const raw = localStorage.getItem('auth_user');
-        return !!raw && raw !== 'null';
-      } catch { return false; }
-    }
+  const $ = (s, r = document) => r.querySelector(s);
+  const fmtJPY = (n) => `¥${Math.round(Number(n || 0)).toLocaleString('ja-JP')}`;
+
+  const state = {
+    offset: 0,
+    limit: 50,
+    loaded: 0,
+    filters: {}
   };
 
-  // ---- レイアウト生成（無ければ作る） ----
-  function ensureLayout(){
-    // 既に tbody があれば何もしない
+  function text(value) {
+    return String(value ?? '');
+  }
+
+  function clear(node) {
+    if (!node) return;
+    while (node.firstChild) node.removeChild(node.firstChild);
+  }
+
+  function createCell(value, align = 'left') {
+    const td = document.createElement('td');
+    td.style.padding = '8px';
+    td.style.textAlign = align;
+    td.textContent = text(value);
+    return td;
+  }
+
+  function setStatus(message, isError = false) {
+    const msg = $('#salesMessage');
+    if (!msg) return;
+    msg.textContent = message;
+    msg.style.color = isError ? '#ff9a9a' : '#9fb0d4';
+  }
+
+  function updateCount() {
+    const countEl = $('#hitCount');
+    if (!countEl) return;
+    countEl.textContent = `表示件数: ${state.loaded}`;
+  }
+
+  function ensureLayout() {
     if ($('#salesTbody')) return;
 
-    // どこに差し込むか
     const host = $('.admin-section') || $('main') || document.body;
 
-    // 件数欄
-    let topBar = $('#hitCount');
-    if (!topBar) {
-      topBar = document.createElement('div');
-      topBar.id = 'hitCount';
-      topBar.style.cssText = 'margin:8px 0 12px 0;font-weight:700;';
-      host.prepend(topBar);
-    }
+    const count = document.createElement('div');
+    count.id = 'hitCount';
+    count.style.cssText = 'margin:8px 0 6px 0;font-weight:700;';
+    host.appendChild(count);
 
-    // フィルタが無いページ用に最低限の UI を作る（既にあるページではスキップされる）
-    const needFilter = !$('#qUser') && !$('#qProduct');
-    if (needFilter) {
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 12px;';
-      row.innerHTML = `
-        <input id="qUser"    placeholder="ユーザー (部分一致)"   class="input">
-        <input id="qProduct" placeholder="商品名 (部分一致)"     class="input">
-        <input id="qMin"     placeholder="金額(以上)"            class="input" style="width:120px">
-        <input id="qMax"     placeholder="金額(以下)"            class="input" style="width:120px">
-        <button id="btnSearch" class="btn btn-primary">検索</button>
-        <button id="btnClear"  class="btn">クリア</button>
-        <button id="btnReload" class="btn">最新を再取得</button>
-      `;
-      host.appendChild(row);
-    }
+    const message = document.createElement('div');
+    message.id = 'salesMessage';
+    message.style.cssText = 'margin:0 0 12px 0;font-size:13px;';
+    host.appendChild(message);
 
-    // テーブル
-    const tblWrap = document.createElement('div');
-    tblWrap.innerHTML = `
-      <table class="table" style="width:100%;border-collapse:collapse">
-        <thead>
-          <tr>
-            <th style="text-align:left;padding:8px">日時</th>
-            <th style="text-align:left;padding:8px">ユーザー</th>
-            <th style="text-align:left;padding:8px">商品名</th>
-            <th style="text-align:right;padding:8px">数量</th>
-            <th style="text-align:right;padding:8px">単価</th>
-            <th style="text-align:right;padding:8px">小計（行）</th>
-            <th style="text-align:left;padding:8px">注文ID</th>
-          </tr>
-        </thead>
-        <tbody id="salesTbody"></tbody>
-      </table>
-      <div style="margin:16px 0">
-        <button id="btnMore" class="btn">さらに読み込む</button>
-      </div>
-    `;
-    host.appendChild(tblWrap);
-  }
+    const filters = document.createElement('div');
+    filters.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 12px;';
 
-  // ---- 状態 ----
-  const state = { offset:0, limit:50, loaded:0, filters:{} };
-
-  function els(){
-    // 呼び出し時点で取得（自動生成後に存在する）
-    return {
-      qUser   : $('#qUser'),
-      qProduct: $('#qProduct'),
-      qMin    : $('#qMin'),
-      qMax    : $('#qMax'),
-      btnSearch: $('#btnSearch'),
-      btnClear : $('#btnClear'),
-      btnMore  : $('#btnMore'),
-      btnReload: $('#btnReload'),
-      tbody    : $('#salesTbody'),
-      countEl  : $('#hitCount')
+    const mkInput = (id, placeholder, width) => {
+      const input = document.createElement('input');
+      input.id = id;
+      input.className = 'input';
+      input.placeholder = placeholder;
+      if (width) input.style.width = width;
+      return input;
     };
-  }
 
-  const readFilters = ({qUser,qProduct,qMin,qMax}) => {
-    const v = el => (el && typeof el.value === 'string') ? el.value.trim() : '';
-    const f = {};
-    if (v(qUser))    f.user    = v(qUser);
-    if (v(qProduct)) f.product = v(qProduct);
-    if (v(qMin))     f.min     = v(qMin);
-    if (v(qMax))     f.max     = v(qMax);
-    return f;
-  };
+    const qUser = mkInput('qUser', 'ユーザー (部分一致)');
+    const qProduct = mkInput('qProduct', '商品名 (部分一致)');
+    const qMin = mkInput('qMin', '最低金額', '120px');
+    const qMax = mkInput('qMax', '最高金額', '120px');
 
-  function updateCount(countEl){
-    if (!countEl) return;
-    countEl.textContent = `表示件数: ${state.loaded}（全件表示）`;
-  }
-
-  const rowHTML = r => `
-    <tr>
-      <td style="padding:8px">${(r.created_at||'').replace('T',' ').replace('.000Z','')}</td>
-      <td style="padding:8px">${r.user || '退会ユーザー'}</td>
-      <td style="padding:8px">${r.product || ''}</td>
-      <td style="padding:8px;text-align:right">${r.qty}</td>
-      <td style="padding:8px;text-align:right">${fmtJPY(r.unit)}</td>
-      <td style="padding:8px;text-align:right">${fmtJPY(r.line)}</td>
-      <td style="padding:8px">${r.orderRef ? String(r.orderRef) : ''}</td>
-    </tr>`;
-
-  async function fetchSales({ append=false } = {}){
-    const { tbody, countEl } = els();
-
-    const qs = new URLSearchParams();
-    const f = state.filters;
-    if (f.user)    qs.set('user', f.user);
-    if (f.product) qs.set('product', f.product);
-    if (f.min)     qs.set('min', f.min);
-    if (f.max)     qs.set('max', f.max);
-    qs.set('limit',  String(state.limit));
-    qs.set('offset', String(state.offset));
-
-    try{
-      const r = await fetch(`/api/admin/sales-timeline?${qs.toString()}`, { credentials:'include' });
-      if (r.status === 401){
-        if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:#ff9a9a;padding:8px">Unauthorized</td></tr>`;
-        updateCount(countEl);
-        return;
-      }
-      if (!r.ok){
-        if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:#ff9a9a;padding:8px">Failed (HTTP ${r.status})</td></tr>`;
-        return;
-      }
-      const rows = await r.json();
-
-      if (!append) { state.loaded = 0; if (tbody) tbody.innerHTML = ''; }
-      if (tbody)   tbody.insertAdjacentHTML('beforeend', rows.map(rowHTML).join(''));
-      state.loaded += rows.length;
-      state.offset += rows.length;
-
-      const { btnMore } = els();
-      if (btnMore) btnMore.disabled = rows.length < state.limit;
-
-      updateCount(countEl);
-    }catch(e){
-      console.error(e);
-      if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:#ff9a9a;padding:8px">Failed to load</td></tr>`;
-    }
-  }
-
-  function wire(){
-    const E = els();
-    const doSearch = () => {
-      state.filters = readFilters(E);
-      state.offset  = 0;
-      fetchSales({ append:false });
+    const mkButton = (id, label, className = 'btn') => {
+      const btn = document.createElement('button');
+      btn.id = id;
+      btn.className = className;
+      btn.type = 'button';
+      btn.textContent = label;
+      return btn;
     };
-    const clearFilters = () => {
-      ['qUser','qProduct','qMin','qMax'].forEach(k => { if (E[k]) E[k].value=''; });
-      doSearch();
-    };
-    const loadMore = () => fetchSales({ append:true });
 
-    E.btnSearch && E.btnSearch.addEventListener('click', doSearch);
-    E.btnClear  && E.btnClear .addEventListener('click', clearFilters);
-    E.btnMore   && E.btnMore  .addEventListener('click', loadMore);
-    E.btnReload && E.btnReload.addEventListener('click', ()=>{ state.offset=0; fetchSales({append:false}); });
+    filters.appendChild(qUser);
+    filters.appendChild(qProduct);
+    filters.appendChild(qMin);
+    filters.appendChild(qMax);
+    filters.appendChild(mkButton('btnSearch', '検索', 'btn btn-primary'));
+    filters.appendChild(mkButton('btnClear', 'クリア'));
+    filters.appendChild(mkButton('btnReload', '再読込'));
+    host.appendChild(filters);
 
-    [E.qUser,E.qProduct,E.qMin,E.qMax].forEach(el=>{
-      el && el.addEventListener('keydown', e=>{ if (e.key==='Enter') doSearch(); });
+    const table = document.createElement('table');
+    table.className = 'table';
+    table.style.width = '100%';
+    table.style.borderCollapse = 'collapse';
+
+    const head = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    const headers = [
+      ['日時', 'left'],
+      ['ユーザー', 'left'],
+      ['商品', 'left'],
+      ['数量', 'right'],
+      ['単価', 'right'],
+      ['小計', 'right'],
+      ['注文ID', 'left']
+    ];
+
+    headers.forEach(([label, align]) => {
+      const th = document.createElement('th');
+      th.style.padding = '8px';
+      th.style.textAlign = align;
+      th.textContent = label;
+      headRow.appendChild(th);
     });
 
-    // 初回
-    state.filters = readFilters(E);
-    state.offset  = 0;
-    fetchSales({ append:false });
+    head.appendChild(headRow);
+    table.appendChild(head);
+
+    const tbody = document.createElement('tbody');
+    tbody.id = 'salesTbody';
+    table.appendChild(tbody);
+
+    host.appendChild(table);
+
+    const moreWrap = document.createElement('div');
+    moreWrap.style.margin = '16px 0';
+    const moreBtn = mkButton('btnMore', 'さらに読み込む');
+    moreWrap.appendChild(moreBtn);
+    host.appendChild(moreWrap);
+  }
+
+  function readFilters() {
+    const val = (id) => text($(id)?.value).trim();
+    const filters = {};
+    const user = val('#qUser');
+    const product = val('#qProduct');
+    const min = val('#qMin');
+    const max = val('#qMax');
+
+    if (user) filters.user = user;
+    if (product) filters.product = product;
+    if (min) filters.min = min;
+    if (max) filters.max = max;
+    return filters;
+  }
+
+  function appendRows(rows, appendMode) {
+    const tbody = $('#salesTbody');
+    if (!tbody) return;
+
+    if (!appendMode) {
+      clear(tbody);
+      state.loaded = 0;
+    }
+
+    rows.forEach((row) => {
+      const tr = document.createElement('tr');
+      tr.appendChild(createCell(text(row.created_at || '').replace('T', ' ').replace('.000Z', '')));
+      tr.appendChild(createCell(row.user || '匿名ユーザー'));
+      tr.appendChild(createCell(row.product || ''));
+      tr.appendChild(createCell(Number(row.qty || 0), 'right'));
+      tr.appendChild(createCell(fmtJPY(row.unit), 'right'));
+      tr.appendChild(createCell(fmtJPY(row.line), 'right'));
+      tr.appendChild(createCell(row.orderRef || ''));
+      tbody.appendChild(tr);
+    });
+
+    state.loaded += rows.length;
+    updateCount();
+  }
+
+  async function fetchSales({ append = false } = {}) {
+    const qs = new URLSearchParams();
+
+    Object.entries(state.filters).forEach(([k, v]) => {
+      if (v) qs.set(k, String(v));
+    });
+
+    qs.set('limit', String(state.limit));
+    qs.set('offset', String(state.offset));
+
+    setStatus('読み込み中...');
+
+    try {
+      const res = await fetch(`/api/admin/sales-timeline?${qs.toString()}`, { credentials: 'include' });
+      if (res.status === 401) {
+        appendRows([], false);
+        setStatus('Unauthorized', true);
+        return;
+      }
+      if (!res.ok) {
+        appendRows([], false);
+        setStatus(`Failed (HTTP ${res.status})`, true);
+        return;
+      }
+
+      const rows = await res.json();
+      const list = Array.isArray(rows) ? rows : [];
+
+      appendRows(list, append);
+      state.offset += list.length;
+
+      const btnMore = $('#btnMore');
+      if (btnMore) btnMore.disabled = list.length < state.limit;
+
+      setStatus(list.length ? '' : 'データがありません。');
+    } catch (_) {
+      appendRows([], false);
+      setStatus('Failed to load', true);
+    }
+  }
+
+  function wireEvents() {
+    const doSearch = () => {
+      state.filters = readFilters();
+      state.offset = 0;
+      fetchSales({ append: false });
+    };
+
+    const clearSearch = () => {
+      ['#qUser', '#qProduct', '#qMin', '#qMax'].forEach((id) => {
+        const el = $(id);
+        if (el) el.value = '';
+      });
+      doSearch();
+    };
+
+    $('#btnSearch')?.addEventListener('click', doSearch);
+    $('#btnClear')?.addEventListener('click', clearSearch);
+    $('#btnReload')?.addEventListener('click', () => {
+      state.offset = 0;
+      fetchSales({ append: false });
+    });
+    $('#btnMore')?.addEventListener('click', () => fetchSales({ append: true }));
+
+    ['#qUser', '#qProduct', '#qMin', '#qMax'].forEach((id) => {
+      $(id)?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') doSearch();
+      });
+    });
+
+    state.filters = readFilters();
+    state.offset = 0;
+    fetchSales({ append: false });
   }
 
   document.addEventListener('DOMContentLoaded', () => {
     ensureLayout();
-    wire();
+    wireEvents();
   });
 })();

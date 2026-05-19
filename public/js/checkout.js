@@ -13,8 +13,8 @@
 
   // Auth は script.js で公開済み（なければ簡易フォールバック）
   const Auth = window.Auth || {
-    getUser(){ try{ return JSON.parse(localStorage.getItem('auth_user')||'null'); }catch{return null;} },
-    isLoggedIn(){ return !!(this.getUser() && this.getUser().username); }
+    getUser(){ return null; },
+    isLoggedIn(){ return false; }
   };
 
   function getCart(){
