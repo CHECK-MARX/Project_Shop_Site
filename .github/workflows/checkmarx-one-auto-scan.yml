@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkmarx One Scan
         uses: Checkmarx/ast-github-action@e3f1356c077fcb2ad2062ccc8c9f1631bae59128
@@ -27,3 +27,4 @@ jobs:
           cx_client_id: ${{ secrets.CX_CLIENT_ID || secrets.CHECKMARX_CLIENT_ID || secrets.CXONE_CLIENT_ID }}
           cx_client_secret: ${{ secrets.CX_CLIENT_SECRET || secrets.CHECKMARX_CLIENT_SECRET || secrets.CXONE_CLIENT_SECRET }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+
