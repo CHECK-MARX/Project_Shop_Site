@@ -1,0 +1,29 @@
+﻿name: Checkmarx One Auto Scan
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  checkmarx-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkmarx One Scan
+        uses: Checkmarx/ast-github-action@e3f1356c077fcb2ad2062ccc8c9f1631bae59128
+        with:
+          project_name: CHECK-MARX/Project_Shop_Site
+          cx_tenant: ${{ vars.CX_TENANT }}
+          base_uri: ${{ vars.CX_BASE_URI }}
+          cx_client_id: ${{ secrets.CX_CLIENT_ID }}
+          cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
