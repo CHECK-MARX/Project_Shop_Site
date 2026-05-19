@@ -24,6 +24,6 @@ jobs:
           project_name: CHECK-MARX/Project_Shop_Site
           cx_tenant: sng_partners
           base_uri: https://sng.ast.checkmarx.net
-          cx_client_id: ${{ secrets.CX_CLIENT_ID }}
-          cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
+          cx_client_id: ${{ secrets.CX_CLIENT_ID || secrets.CHECKMARX_CLIENT_ID || secrets.CXONE_CLIENT_ID }}
+          cx_client_secret: ${{ secrets.CX_CLIENT_SECRET || secrets.CHECKMARX_CLIENT_SECRET || secrets.CXONE_CLIENT_SECRET }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
